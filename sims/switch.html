@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>從開關到加法</title>
+<style>
+:root{--bg:#0B0E13;--panel:#12161D;--line:#2A323E;--text:#E6EAF0;--muted:#97A1B0;
+--si:#8FA6BF;--euv:#8B6CFF;--sig:#4FD1A5;--risk:#E5534B;--gold:#E3B341;--cu:#D08B5B}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+font-family:"PingFang TC","Noto Sans TC",system-ui,sans-serif;overflow:hidden;-webkit-tap-highlight-color:transparent}
+#app{display:flex;flex-direction:column;height:100%;padding:8px 10px 6px}
+header{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+h1{font-size:14px;margin:0;font-weight:600}
+.read{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--muted);min-height:32px;line-height:1.4}
+.read b{color:var(--gold);font-weight:600}
+#cv{flex:1;min-height:0;width:100%;display:block;margin:6px 0;border:1px solid var(--line);border-radius:8px;background:var(--panel);cursor:pointer;touch-action:manipulation}
+.ctl{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;font-size:12px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg button{border:0;border-radius:0;background:transparent}
+.seg button.on{background:#1f2834;color:var(--text)}
+button{font:inherit;font-size:12px;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer;min-height:30px}
+.tag{position:fixed;right:8px;bottom:4px;font-size:10px;color:var(--muted);opacity:.8;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="app">
+  <header><h1>從開關到加法：電晶體怎麼「算」？</h1>
+    <span class="seg" role="group" aria-label="模式"><button id="m1" class="on">一個 NAND 閘</button><button id="m2">4 位元加法器</button></span>
+  </header>
+  <div class="read" id="rd"></div>
+  <canvas id="cv"></canvas>
+  <div class="ctl" id="hint">點畫面上的輸入方塊切換 0／1。</div>
+</div>
+<div class="tag">邏輯真實計算</div>
+<script>
+(() => {
+"use strict";
+/* NAND 閘（CMOS）：兩個 PMOS 並聯接電源、兩個 NMOS 串聯接地，共 4 顆電晶體。
+   PMOS：閘極 0 時導通；NMOS：閘極 1 時導通。輸出 = NOT(A AND B)。
+   全加器以 9 個 NAND 閘組成（9×4 = 36 顆電晶體）；4 位元漣波加法器 = 4 個全加器 = 144 顆。
+   加法器每一位實際用 NAND 逐閘計算，不是直接用 JS 的 +。 */
+const $=id=>document.getElementById(id), cv=$("cv"), ctx=cv.getContext("2d");
+const C={line:"#2A323E",text:"#E6EAF0",muted:"#97A1B0",si:"#8FA6BF",sig:"#4FD1A5",risk:"#E5534B",gold:"#E3B341",cu:"#D08B5B",grid:"#1E2530",off:"#3A4350"};
+let mode=1, A=1, B=0, X=[1,0,1,1], Y=[0,1,1,0], hits=[], nandCount=0;
+const NAND=(a,b)=>{ nandCount++; return (a&&b)?0:1; };
+function fullAdder(a,b,c){
+  const n1=NAND(a,b), n2=NAND(a,n1), n3=NAND(b,n1), s1=NAND(n2,n3);
+  const n4=NAND(s1,c), n5=NAND(s1,n4), n6=NAND(c,n4), s=NAND(n5,n6), co=NAND(n4,n1);
+  return [s,co];
+}
+function fit(){ const r=cv.getBoundingClientRect(), d=Math.min(devicePixelRatio||1,2); cv.width=Math.round(r.width*d); cv.height=Math.round(r.height*d); return d; }
+function box(x,y,w,h,on,label,d,key){
+  ctx.fillStyle=on?"rgba(79,209,165,.22)":"#1A2029"; ctx.strokeStyle=on?C.sig:C.line; ctx.lineWidth=1.5*d;
+  ctx.beginPath(); ctx.roundRect(x,y,w,h,6*d); ctx.fill(); ctx.stroke();
+  ctx.fillStyle=on?C.sig:C.muted; ctx.font=`600 ${Math.min(h*.5,22*d)}px Menlo,monospace`; ctx.textAlign="center"; ctx.textBaseline="middle";
+  ctx.fillText(label,x+w/2,y+h/2); ctx.textAlign="left"; ctx.textBaseline="alphabetic";
+  if(key) hits.push({x,y,w,h,key});
+}
+function wire(pts,on,d){ ctx.strokeStyle=on?C.sig:C.off; ctx.lineWidth=(on?3:2)*d; ctx.beginPath(); pts.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y)); ctx.stroke(); }
+function drawNand(d,W,H){
+  /* 虛擬座標 1000×600，等比縮放置中 */
+  const k=Math.min(W/1000,H/600), ox=(W-1000*k)/2, oy=(H-600*k)/2;
+  const P=(x,y)=>[ox+x*k,oy+y*k];
+  const out=NAND(A,B); nandCount=0;
+  const L=(pts,on,w=3)=>{ ctx.strokeStyle=on?C.sig:C.off; ctx.lineWidth=w*k*(on?1.15:1); ctx.lineJoin="round"; ctx.beginPath(); pts.forEach((q,i)=>{const [x,y]=P(...q); i?ctx.lineTo(x,y):ctx.moveTo(x,y);}); ctx.stroke(); };
+  const T=(t,x,y,col,sz=20,wt="")=>{ ctx.fillStyle=col; ctx.font=`${wt} ${sz*k}px "PingFang TC","Noto Sans TC",sans-serif`; const [X,Y]=P(x,y); ctx.fillText(t,X,Y); };
+  const dot=(x,y,on)=>{ ctx.fillStyle=on?C.sig:C.off; const [X,Y]=P(x,y); ctx.beginPath(); ctx.arc(X,Y,6*k,0,7); ctx.fill(); };
+  // 電晶體：x 為通道位置，y1..y2 通道上下端，gx 為閘極接線側（-1 左、+1 右）
+  function fet(x,y1,y2,type,g,side,topOn,botOn){
+    const on = type==="P" ? !g : !!g, ym=(y1+y2)/2;
+    L([[x,y1],[x,ym-22]],topOn); L([[x,ym+22],[x,y2]],botOn);
+    if(on) L([[x,ym-22],[x,ym+22]],topOn||botOn,5); else L([[x,ym-22],[x+16,ym+14]],false,4);
+    const gx=x+side*22; L([[gx,ym-26],[gx,ym+26]],g,5);
+    if(type==="P"){ ctx.strokeStyle=g?C.sig:C.off; ctx.lineWidth=3*k; const [X,Y]=P(gx+side*9,ym); ctx.beginPath(); ctx.arc(X,Y,8*k,0,7); ctx.stroke(); }
+    T(type==="P"?"PMOS":"NMOS", x+(side<0?14:-74), ym+(side<0?-30:-30), C.muted, 15);
+    T(on?"導通":"斷開", x+(side<0?14:-60), ym+44, on?C.sig:C.muted, 15, "600");
+    return on;
+  }
+  const p1on=!A, p2on=!B, n1on=!!A, n2on=!!B;
+  // 電源軌與接地
+  L([[400,70],[720,70]],1,4); T("電源 = 1",290,77,C.gold,20,"600");
+  L([[500,560],[600,560]],0,4); L([[515,575],[585,575]],0,3); L([[535,590],[565,590]],0,2); T("接地 = 0",615,568,C.muted,20,"600");
+  // PMOS（並聯）
+  fet(460,70,230,"P",A,-1,1,out); fet(660,70,230,"P",B,+1,1,out);
+  L([[460,230],[660,230]],out); dot(560,230,out);
+  // NMOS（串聯）
+  const mid = out?0:0;
+  fet(560,230,385,"N",A,-1,out,n1on?out:0);
+  fet(560,385,500,"N",B,-1,n1on?out:0,0); L([[560,500],[560,560]],0);
+  // 輸出
+  L([[660,230],[820,230]],out); dot(660,230,out);
+  // 輸入 A
+  const box2=(x,y,w,h,on,label,key)=>{ const [X,Y]=P(x,y); box(X,Y,w*k,h*k,on,label,d,key); };
+  box2(60,120,150,64,A,"A = "+A,"A"); box2(60,410,150,64,B,"B = "+B,"B");
+  box2(830,198,140,64,out,"Y = "+out);
+  const gA=A, gB=B;
+  L([[210,152],[421,152]],gA); dot(300,152,gA); L([[300,152],[300,308],[538,308]],gA);
+  // 輸入 B：下方繞到右側 PMOS
+  L([[210,442],[538,442]],gB); dot(330,442,gB); L([[330,442],[330,530],[760,530],[760,150],[699,150]],gB);
+  $("rd").innerHTML=`輸出 Y = NOT(A AND B) = <b>${out}</b>　｜　上方兩顆 PMOS 只要「任一顆」導通，就把 Y 接到電源（1）；下方兩顆 NMOS 要「兩顆都」導通，才把 Y 接到地（0）。<br>4 顆電晶體做出一個 NAND 閘，而任何計算都能只用 NAND 閘組出來。`;
+}
+function drawAdder(d,W,H){
+  nandCount=0; let c=0; const S=[];
+  for(let i=0;i<4;i++){ const [s,co]=fullAdder(X[i],Y[i],c); S.push(s); c=co; }
+  const cols=4, bw=Math.min(W*0.16,90*d), gap=(W-cols*bw)/(cols+1), bh=Math.min(H*0.1,46*d);
+  ctx.font=`${12*d}px "PingFang TC",sans-serif`; ctx.fillStyle=C.muted;
+  const rows=[H*0.14,H*0.32,H*0.62];
+  ctx.fillText("X",8*d,rows[0]+bh*.6); ctx.fillText("Y",8*d,rows[1]+bh*.6); ctx.fillText("和",8*d,rows[2]+bh*.6);
+  for(let k=0;k<4;k++){
+    const i=3-k, x=gap+(gap+bw)*k;
+    box(x,rows[0],bw,bh,X[i],String(X[i]),d,"X"+i);
+    box(x,rows[1],bw,bh,Y[i],String(Y[i]),d,"Y"+i);
+    ctx.strokeStyle=C.cu; ctx.lineWidth=1.5*d; ctx.strokeRect(x,rows[1]+bh+14*d,bw,rows[2]-rows[1]-bh-28*d);
+    ctx.fillStyle=C.cu; ctx.fillText("全加器",x+8*d,rows[1]+bh+32*d); ctx.fillStyle=C.muted; ctx.fillText("9 NAND",x+8*d,rows[1]+bh+50*d);
+    box(x,rows[2],bw,bh,S[i],String(S[i]),d);
+  }
+  box(gap*0.2,rows[2]+bh+12*d,Math.max(bw*.8,40*d),bh*.8,c,"進位 "+c,d);
+  const xv=X[0]+2*X[1]+4*X[2]+8*X[3], yv=Y[0]+2*Y[1]+4*Y[2]+8*Y[3], sv=S[0]+2*S[1]+4*S[2]+8*S[3]+16*c;
+  $("rd").innerHTML=`${xv} + ${yv} = <b>${sv}</b>（二進位 ${c}${S.slice().reverse().join("")}）　｜　這次計算實際經過 <b>${nandCount}</b> 個 NAND 閘 ＝ <b>${nandCount*4}</b> 顆電晶體。<br>今天的旗艦手機晶片有上百億顆電晶體，都是這樣的開關。`;
+}
+function draw(){
+  hits=[]; const d=fit(), W=cv.width, H=cv.height;
+  ctx.fillStyle="#12161D"; ctx.fillRect(0,0,W,H);
+  ctx.strokeStyle=C.grid; ctx.lineWidth=d;
+  for(let x=0;x<W;x+=24*d){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
+  for(let y=0;y<H;y+=24*d){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+  mode===1?drawNand(d,W,H):drawAdder(d,W,H);
+}
+cv.addEventListener("click",e=>{
+  const r=cv.getBoundingClientRect(), k=cv.width/r.width, x=(e.clientX-r.left)*k, y=(e.clientY-r.top)*k;
+  const h=hits.find(h=>x>=h.x&&x<=h.x+h.w&&y>=h.y&&y<=h.y+h.h); if(!h) return;
+  if(h.key==="A") A^=1; else if(h.key==="B") B^=1;
+  else if(h.key[0]==="X") X[+h.key[1]]^=1; else if(h.key[0]==="Y") Y[+h.key[1]]^=1;
+  draw();
+});
+$("m1").onclick=()=>{mode=1;$("m1").classList.add("on");$("m2").classList.remove("on");draw();};
+$("m2").onclick=()=>{mode=2;$("m2").classList.add("on");$("m1").classList.remove("on");draw();};
+addEventListener("resize",draw); draw();
+})();
+</script>
+</body>
+</html>

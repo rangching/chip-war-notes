@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>出口管制門檻計算器</title>
+<style>
+:root{--bg:#0B0E13;--panel:#12161D;--line:#2A323E;--text:#E6EAF0;--muted:#97A1B0;
+--si:#8FA6BF;--euv:#8B6CFF;--sig:#4FD1A5;--risk:#E5534B;--gold:#E3B341;--cu:#D08B5B}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+font-family:"PingFang TC","Noto Sans TC",system-ui,sans-serif;overflow:hidden;-webkit-tap-highlight-color:transparent}
+#app{display:flex;flex-direction:column;height:100%;padding:8px 10px 6px}
+header{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+h1{font-size:14px;margin:0;font-weight:600}
+.read{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--muted);min-height:32px;line-height:1.45}
+.read b{color:var(--gold);font-weight:600}.read i{color:var(--risk);font-style:normal}.read u{color:var(--sig);text-decoration:none}
+#cv{flex:1;min-height:0;width:100%;display:block;margin:6px 0;border:1px solid var(--line);border-radius:8px;background:var(--panel);touch-action:manipulation}
+.ctl{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;font-size:12px}
+select,button,input[type=number]{font:inherit;font-size:12px;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 8px;min-height:30px}
+input[type=number]{width:78px;font-family:ui-monospace,Menlo,monospace}
+label{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}
+input[type=checkbox]{accent-color:var(--euv)}
+details{font-size:11px;color:var(--muted);margin-top:4px;max-height:34vh;overflow:auto}
+details summary{cursor:pointer;color:var(--text)}
+details li{margin:2px 0;line-height:1.45}
+details a{color:var(--si)}
+@media (max-width:480px){.ctl{gap:5px 8px;font-size:11px}.read{font-size:11px}h1{font-size:13px}input[type=number]{width:64px}}
+.tag{position:fixed;right:8px;bottom:4px;font-size:10px;color:var(--muted);opacity:.8;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>出口管制門檻：這顆晶片會不會被管？</h1>
+    <select id="rule" aria-label="規則版本">
+      <option value="2022">2022-10 規則（87 FR 62186）</option>
+      <option value="2023" selected>2023-10 規則（88 FR 73458）</option>
+    </select>
+  </header>
+  <div class="read" id="rd"></div>
+  <canvas id="cv"></canvas>
+  <div class="ctl">
+    <label>晶片 <select id="chip"></select></label>
+    <label>TOPS <input id="tops" type="number" min="1" max="20000" step="1"></label>
+    <label>位元 <select id="bits"><option>4</option><option selected>8</option><option>16</option><option>32</option><option>64</option></select></label>
+    <label>晶粒 mm² <input id="area" type="number" min="10" max="3000" step="1"></label>
+    <label>對外傳輸 GB/s <input id="io" type="number" min="0" max="5000" step="1"></label>
+    <label><input id="dc" type="checkbox" checked> 資料中心用</label>
+  </div>
+  <details>
+    <summary>定義、晶片資料來源與 2025–2026 規則變化</summary>
+    <ul>
+      <li><b>官方定義</b>（ECCN 3A090 技術註解，<a href="https://www.govinfo.gov/content/pkg/FR-2023-10-25/html/2023-23055.htm" target="_blank" rel="noopener">88 FR 73458，2023-10-25</a>）：TPP＝2×MacTOPS×運算位元長度（取乘法輸入的最大位元數），全晶片加總；2×MacTOPS 可對應規格表的 TOPS／TFLOPS；有稀疏加速時用稠密值。性能密度＝TPP÷適用晶粒面積（mm²，非平面電晶體製程的邏輯晶粒）。</li>
+      <li><b>2022-10</b>（<a href="https://www.govinfo.gov/content/pkg/FR-2022-10-13/html/2022-21658.htm" target="_blank" rel="noopener">87 FR 62186</a>）：bits×TOPS ≥ 4800，且晶片對外雙向傳輸率 ≥ 600 GB/s。</li>
+      <li><b>2023-10</b>：3A090.a：TPP ≥ 4800；或 TPP ≥ 1600 且 PD ≥ 5.92。3A090.b：2400 ≤ TPP ＜ 4800 且 1.6 ≤ PD ＜ 5.92；或 TPP ≥ 1600 且 3.2 ≤ PD ＜ 5.92。非資料中心產品 TPP ＜ 4800 不適用；≥ 4800 可用 NAC 通報例外。</li>
+      <li><b>晶片資料</b>（稠密值）：A100 FP16 312 TFLOPS、826 mm²、NVLink 600 GB/s（<a href="https://developer.nvidia.com/blog/nvidia-ampere-architecture-in-depth/" target="_blank" rel="noopener">NVIDIA，2020</a>）；H100 SXM FP8 1,979 TFLOPS、814 mm²、900 GB/s（<a href="https://developer.nvidia.com/blog/nvidia-hopper-architecture-in-depth/" target="_blank" rel="noopener">NVIDIA，2022</a>）；H200 運算同 H100、H20 FP8 296 TFLOPS（<a href="https://ifp.org/should-the-us-sell-hopper-chips-to-china/" target="_blank" rel="noopener">IFP，2025-12</a>；H20 晶粒面積未公布，此處假設同 H100）；A800、H800 運算同 A100、H100，傳輸率降到 600 GB/s 以下（<a href="https://www.tomshardware.com/news/nvidia-gimps-h100-hopper-gpu-to-sell-as-h800-to-china" target="_blank" rel="noopener">Tom's Hardware，2023</a>；確切值各報導不一，此處取 400）；RTX 4090 FP8 660.6 TFLOPS、608.5 mm²（NVIDIA Ada 白皮書；TPP 約 5,285，見 <a href="https://www.tomshardware.com/news/nvidia-reportedly-creating-new-rtx-4090-d-dragon-gpu-to-comply-with-us-export-regulations-for-china" target="_blank" rel="noopener">Tom's Hardware</a>）。</li>
+      <li><b>2025-01</b> AI 擴散規則公布；<b>2025-05-13</b> 宣布撤回（<a href="https://www.kirkland.com/publications/kirkland-alert/2025/05/bis-rescission-of-the-biden-administration" target="_blank" rel="noopener">Kirkland</a>）。</li>
+      <li><b>2025-04</b> H20 輸往中國改為需許可；<b>2025-08</b> 以 15% 營收分成恢復（<a href="https://www.tomshardware.com/tech-industry/artificial-intelligence/nvidia-writes-off-usd5-5-billion-in-gpus-as-us-govt-chokes-off-supply-of-h20s-to-china" target="_blank" rel="noopener">Tom's Hardware</a>）。</li>
+      <li><b>2025-12-08</b> 宣布允許 H200 對中銷售、美方收 25%；<b>2026-01-15</b> 改逐案審查並課 25% 的 232 條款關稅（<a href="https://www.govinfo.gov/content/pkg/FR-2026-01-15/html/2026-00789.htm" target="_blank" rel="noopener">聯邦公報</a>）；<b>2026-11-17</b> 報導 NVIDIA 停售 H200 給中國（二手轉述）。</li>
+      <li><b>2026-11-16</b> 遠端算力暫行最終規則：門檻 1,200 萬 TPP（約 750 顆 H100／H200），正式撤銷 AI 擴散規則（<a href="https://techcrunch.com/2026/11/16/us-tightens-ai-chip-export-controls-to-deter-chinese-companies-from-accessing-compute-remotely/" target="_blank" rel="noopener">TechCrunch</a>）。2026-11 川習會談對晶片管制的影響，截至 2026-11-18 尚未確定。</li>
+    </ul>
+  </details>
+</div>
+<div class="tag">ECCN 3A090 公式・真實計算</div>
+<script>
+(() => {
+"use strict";
+/* 模型：依 ECCN 3A090 官方技術註解計算（88 FR 73458，2023-10-25；87 FR 62186，2022-10-13）。
+   TPP = 規格表稠密 TOPS（＝2×MacTOPS）× 位元長度；PD = TPP ÷ 晶粒面積（mm²）。
+   2022：TPP ≥ 4800 且 I/O ≥ 600 GB/s → 3A090。
+   2023：a = TPP ≥ 4800 或（TPP ≥ 1600 且 PD ≥ 5.92）；b = (2400 ≤ TPP < 4800 且 1.6 ≤ PD < 5.92) 或 (TPP ≥ 1600 且 3.2 ≤ PD < 5.92)；
+         非資料中心且 TPP < 4800 → 不適用（Note 2）。
+   遠端算力門檻 1,200 萬 TPP（TechCrunch 2026-11-16）。晶片數字來源見頁面下方；與 calc_u12.py 相同。 */
+const $=id=>document.getElementById(id), cv=$("cv"), ctx=cv.getContext("2d");
+const C={line:"#2A323E",text:"#E6EAF0",muted:"#97A1B0",sig:"#4FD1A5",risk:"#E5534B",gold:"#E3B341",cu:"#D08B5B",euv:"#8B6CFF",si:"#8FA6BF",grid:"#1E2530"};
+const CHIPS=[
+  {n:"A100（2020）",tops:312,bits:16,area:826,io:600,dc:true},
+  {n:"A800（2022，中國版）",tops:312,bits:16,area:826,io:400,dc:true},
+  {n:"H100 SXM（2022）",tops:1979,bits:8,area:814,io:900,dc:true},
+  {n:"H800（2023，中國版）",tops:1979,bits:8,area:814,io:400,dc:true},
+  {n:"H20（2024，中國版）",tops:296,bits:8,area:814,io:900,dc:true},
+  {n:"H200（2024）",tops:1979,bits:8,area:814,io:900,dc:true},
+  {n:"RTX 4090（消費級）",tops:660.6,bits:8,area:608.5,io:64,dc:false},
+  {n:"自訂晶片",tops:400,bits:8,area:100,io:200,dc:true}
+];
+const short=n=>n.replace(/（.*?）/,"");
+const tppOf=c=>c.tops*c.bits, pdOf=c=>tppOf(c)/c.area;
+function r2022(c){ return tppOf(c)>=4800 && c.io>=600 ? "管制" : "不管"; }
+function r2023(c){ const T=tppOf(c), pd=pdOf(c);
+  if(!c.dc && T<4800) return "不適用（非資料中心、TPP＜4800）";
+  if(T>=4800 || (T>=1600 && pd>=5.92)) return c.dc ? "3A090.a" : "3A090.a（可用 NAC 通報例外）";
+  if((T>=2400 && T<4800 && pd>=1.6 && pd<5.92) || (T>=1600 && pd>=3.2 && pd<5.92)) return "3A090.b";
+  return "未達門檻"; }
+let cur=JSON.parse(JSON.stringify(CHIPS[4])), selIdx=4, pts=[];
+CHIPS.forEach((c,i)=>{ const o=document.createElement("option"); o.value=i; o.textContent=c.n; $("chip").appendChild(o); });
+function load(i){ selIdx=i; cur=JSON.parse(JSON.stringify(CHIPS[i])); $("chip").value=i; $("tops").value=cur.tops; $("bits").value=cur.bits; $("area").value=cur.area; $("io").value=cur.io; $("dc").checked=cur.dc; draw(); }
+function readUI(){ cur.tops=Math.max(0.1,+$("tops").value||0.1); cur.bits=+$("bits").value; cur.area=Math.max(1,+$("area").value||1); cur.io=Math.max(0,+$("io").value||0); cur.dc=$("dc").checked; }
+function fit(){ const r=cv.getBoundingClientRect(), d=Math.min(devicePixelRatio||1,2); cv.width=Math.round(r.width*d); cv.height=Math.round(r.height*d); return d; }
+const font=(s,d,w)=>`${w||""} ${s*d}px "PingFang TC","Noto Sans TC",sans-serif`;
+function draw(){
+  const d=fit(), W=cv.width, H=cv.height, rule=$("rule").value, narrow=W/d<480;
+  ctx.fillStyle="#12161D"; ctx.fillRect(0,0,W,H);
+  const padL=(narrow?38:46)*d, padR=12*d, padT=12*d, padB=30*d;
+  const xl=[Math.log10(500),Math.log10(40000)], yl=[Math.log10(0.5),Math.log10(60)];
+  const X=t=>padL+(W-padL-padR)*(Math.log10(t)-xl[0])/(xl[1]-xl[0]);
+  const Y=p=>padT+(H-padT-padB)*(1-(Math.log10(p)-yl[0])/(yl[1]-yl[0]));
+  const clampX=t=>Math.min(Math.max(t,10**xl[0]),10**xl[1]), clampY=p=>Math.min(Math.max(p,10**yl[0]),10**yl[1]);
+  const rect=(t0,t1,p0,p1,fill)=>{ const x0=X(clampX(t0)), x1=X(clampX(t1)), y0=Y(clampY(p1)), y1=Y(clampY(p0)); ctx.fillStyle=fill; ctx.fillRect(x0,y0,x1-x0,y1-y0); };
+  const BIG=1e9;
+  // 管制區
+  if(rule==="2023"){
+    rect(2400,4800,1.6,5.92,"rgba(227,179,65,.16)"); rect(1600,4800,3.2,5.92,"rgba(227,179,65,.16)");
+    rect(4800,BIG,0.01,BIG,"rgba(229,83,75,.16)"); rect(1600,4800,5.92,BIG,"rgba(229,83,75,.16)");
+  } else {
+    rect(4800,BIG,0.01,BIG,"rgba(229,83,75,.12)");
+  }
+  // 格線
+  ctx.strokeStyle=C.grid; ctx.lineWidth=d; ctx.font=font(10,d); ctx.fillStyle=C.muted;
+  for(const t of [500,1000,1600,2400,4800,10000,20000,40000]){ const x=X(t); ctx.beginPath(); ctx.moveTo(x,padT); ctx.lineTo(x,H-padB); ctx.stroke(); ctx.textAlign="center"; ctx.textBaseline="top"; if(!narrow||[1000,4800,20000].includes(t)) ctx.fillText(t>=1000?(t/1000)+"k":t, x, H-padB+4*d); }
+  for(const p of [0.5,1,1.6,3.2,5.92,10,20,50]){ const y=Y(p); ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke(); ctx.textAlign="right"; ctx.textBaseline="middle"; ctx.fillText(p, padL-4*d, y); }
+  ctx.textAlign="right"; ctx.textBaseline="bottom"; ctx.fillStyle=C.text; ctx.fillText("TPP（對數）→", W-padR, H-padB-2*d);
+  ctx.save(); ctx.translate(11*d, padT+4*d); ctx.textAlign="left"; ctx.textBaseline="top"; ctx.fillText("性能密度 ↑",0,0); ctx.restore();
+  // 門檻線標註
+  ctx.strokeStyle=C.risk; ctx.lineWidth=1.5*d; ctx.setLineDash([5*d,4*d]);
+  ctx.beginPath(); ctx.moveTo(X(4800),padT); ctx.lineTo(X(4800),H-padB); ctx.stroke();
+  if(rule==="2023"){ ctx.beginPath(); ctx.moveTo(X(1600),Y(5.92)); ctx.lineTo(X(4800),Y(5.92)); ctx.stroke(); }
+  ctx.setLineDash([]);
+  ctx.font=font(10,d); ctx.fillStyle=C.risk; ctx.textAlign="left"; ctx.textBaseline="bottom";
+  ctx.fillText(rule==="2023"?"紅＝3A090.a　黃＝3A090.b":"紅＝TPP≥4800（還要傳輸率≥600 GB/s）", padL+6*d, H-padB-4*d);
+  // 晶片點
+  pts=[];
+  CHIPS.forEach((c0,i)=>{ const c = i===selIdx ? cur : c0; if(i===7 && selIdx!==7) return;
+    const T=tppOf(c), pd=pdOf(c), x=X(clampX(T)), y=Y(clampY(pd));
+    const hit = rule==="2023" ? !/未達|不適用/.test(r2023(c)) : r2022(c)==="管制";
+    ctx.beginPath(); ctx.arc(x,y,(i===selIdx?6:4.5)*d,0,7);
+    if(hit){ ctx.fillStyle=i===selIdx?C.gold:C.risk; ctx.fill(); } else { ctx.lineWidth=2*d; ctx.strokeStyle=i===selIdx?C.gold:C.sig; ctx.stroke(); }
+    ctx.fillStyle=i===selIdx?C.gold:C.text; ctx.font=font(narrow?9.5:10.5,d,i===selIdx?"600":""); ctx.textAlign="left"; ctx.textBaseline="middle";
+    const dy = /H800|A800/.test(c0.n) ? 11*d : (/H200|A100/.test(c0.n) ? -11*d : 0);
+    ctx.fillText(short(c0.n), x+8*d, y+dy);
+    pts.push({i,x,y});
+  });
+  // 讀數
+  const T=tppOf(cur), pd=pdOf(cur), n=12e6/T;
+  $("rd").innerHTML=`TPP = ${cur.tops} × ${cur.bits} = <b>${Math.round(T).toLocaleString()}</b>｜PD = ${Math.round(T)} ÷ ${cur.area} = <b>${pd.toFixed(2)}</b>`+
+    `<br>2022 規則：${r2022(cur)==="管制"?"<i>管制</i>":"<u>不管</u>"}${T>=4800&&cur.io<600?"（算力夠，但傳輸率 < 600）":""}｜2023 規則：${/未達|不適用/.test(r2023(cur))?"<u>"+r2023(cur)+"</u>":"<i>"+r2023(cur)+"</i>"}｜1,200 萬 TPP ≈ ${n.toFixed(0)} 顆`;
+}
+$("chip").addEventListener("change",e=>load(+e.target.value));
+["tops","bits","area","io","dc"].forEach(id=>$(id).addEventListener("input",()=>{ readUI(); draw(); }));
+$("rule").addEventListener("change",draw);
+cv.addEventListener("click",e=>{ const r=cv.getBoundingClientRect(), d=cv.width/r.width, x=(e.clientX-r.left)*d, y=(e.clientY-r.top)*d;
+  let best=null, bd=1e9; for(const p of pts){ const dd=Math.hypot(p.x-x,p.y-y); if(dd<bd){bd=dd;best=p;} }
+  if(best && bd<24*d) load(best.i); });
+addEventListener("resize",draw); load(4);
+})();
+</script>
+</body>
+</html>

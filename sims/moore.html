@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>摩爾定律計算器</title>
+<style>
+:root{--bg:#0B0E13;--panel:#12161D;--line:#2A323E;--text:#E6EAF0;--muted:#97A1B0;
+--si:#8FA6BF;--euv:#8B6CFF;--sig:#4FD1A5;--risk:#E5534B;--gold:#E3B341;--cu:#D08B5B}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+font-family:"PingFang TC","Noto Sans TC",system-ui,sans-serif;overflow:hidden;-webkit-tap-highlight-color:transparent}
+#app{display:flex;flex-direction:column;height:100%;padding:8px 10px 6px}
+header{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+h1{font-size:14px;margin:0;font-weight:600}
+.read{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--muted);min-height:32px;line-height:1.4}
+.read b{color:var(--gold);font-weight:600}.read i{color:var(--sig);font-style:normal}.read u{color:var(--risk);text-decoration:none}
+#cv{flex:1;min-height:0;width:100%;display:block;margin:6px 0;border:1px solid var(--line);border-radius:8px;background:var(--panel);touch-action:manipulation}
+.ctl{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;font-size:12px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg button{border:0;border-radius:0;background:transparent}
+.seg button.on{background:#1f2834;color:var(--text)}
+button{font:inherit;font-size:12px;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer;min-height:30px}
+label{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}
+label span.v{font-family:ui-monospace,Menlo,monospace;color:var(--text);min-width:58px;display:inline-block}
+input[type=range]{width:110px;accent-color:var(--sig);height:26px}
+.pm{display:none}.price .pm{display:inline-flex}
+.src{font-size:10px;color:var(--muted);line-height:1.35;margin-top:3px;padding-bottom:12px}
+@media (max-width:480px){.ctl{gap:5px 8px;font-size:11px}input[type=range]{width:84px}.read{font-size:11px}h1{font-size:13px}}
+.tag{position:fixed;right:8px;bottom:4px;font-size:10px;color:var(--muted);opacity:.8;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="app">
+  <header><h1>摩爾定律計算器</h1>
+    <span class="seg" role="group" aria-label="模式"><button id="m1" class="on">電晶體數</button><button id="m2">每顆電晶體的相對價格</button></span>
+  </header>
+  <div class="read" id="rd"></div>
+  <canvas id="cv"></canvas>
+  <div class="ctl" id="ctl">
+    <label>起點年份 <input id="t0" type="range" min="1959" max="2010" step="1" value="1971"><span class="v" id="t0v"></span></label>
+    <label>起點電晶體數 <input id="n0" type="range" min="0" max="7" step="0.001" value="3.378"><span class="v" id="n0v"></span></label>
+    <label>翻倍週期 T₂ <input id="t2" type="range" min="0.8" max="4" step="0.01" value="2.09"><span class="v" id="t2v"></span></label>
+    <label>算到 <input id="t1" type="range" min="1965" max="2040" step="1" value="2026"><span class="v" id="t1v"></span></label>
+    <label class="pm">晶片售價每年 <input id="g" type="range" min="-20" max="20" step="1" value="0"><span class="v" id="gv"></span></label>
+    <button id="fit">用 14 顆晶片擬合</button>
+  </div>
+  <div class="src">資料點：Intel 4004 2,300 顆（CHM・1971）；8086–Core 2 Duo、A7、A11（Wikipedia「Transistor count」彙整）；M1、M3 Max（Apple 新聞稿・2020、2023）；H100、Blackwell、Rubin（NVIDIA・2022、2024、2026）。空心點＝多晶粒封裝合計。菱形＝摩爾 1965 年預測 1975 年約 65,000 個元件（CHM）。價格模式為相對指數示意，非實際美元價格。</div>
+</div>
+<div class="tag">指數模型＋最小平方擬合・真實計算</div>
+<script>
+(() => {
+"use strict";
+/* 摩爾定律計算器
+   模型：N(t) = N0 · 2^((t − t0)/T2)。
+   擬合：對 14 顆代表晶片做最小平方法 log2 N = a + b·t，T2 = 1/b（在頁面上即時計算，約 2.09 年）。
+   相對價格模式（教學示意）：假設「一顆晶片的售價」每年變化 g，則
+     每顆電晶體的相對價格 p(t) = (1+g)^(t−t0) / 2^((t−t0)/T2)，起點 = 1。
+     減半時間 = 1 / (1/T2 − log2(1+g))。不使用任何實際美元價格數字。
+   資料來源：facts_ep01 查證表（CHM、Wikipedia「Transistor count」、Apple 與 NVIDIA 官方新聞稿／部落格）。 */
+const $=id=>document.getElementById(id), cv=$("cv"), ctx=cv.getContext("2d");
+const C={line:"#2A323E",text:"#E6EAF0",muted:"#97A1B0",si:"#8FA6BF",sig:"#4FD1A5",risk:"#E5534B",gold:"#E3B341",cu:"#D08B5B",euv:"#8B6CFF",grid:"#1E2530"};
+const CHIPS=[ // [年份, 電晶體數, 名稱, 多晶粒]
+  [1971,2300,"4004",0],[1978,29000,"8086",0],[1985,275000,"80386",0],[1989,1180235,"80486",0],
+  [1993,3100000,"Pentium",0],[2000,42000000,"Pentium 4",0],[2006,291000000,"Core 2 Duo",0],
+  [2013,1e9,"A7",0],[2017,4.3e9,"A11",0],[2020,16e9,"M1",0],[2022,80e9,"H100",0],
+  [2023,92e9,"M3 Max",0],[2024,208e9,"Blackwell",1],[2026,336e9,"Rubin",1]];
+const MOORE65=[1975,65000];
+let mode=1;
+function lsq(){ const n=CHIPS.length, xs=CHIPS.map(c=>c[0]), ys=CHIPS.map(c=>Math.log2(c[1]));
+  const mx=xs.reduce((a,b)=>a+b)/n, my=ys.reduce((a,b)=>a+b)/n;
+  let sxy=0,sxx=0; for(let i=0;i<n;i++){ sxy+=(xs[i]-mx)*(ys[i]-my); sxx+=(xs[i]-mx)**2; }
+  const b=sxy/sxx, a=my-b*mx; return {T2:1/b, n1971:Math.pow(2,a+b*1971)}; }
+const FIT=lsq();
+function fmtN(n){ if(n>=1e12) return (n/1e12).toFixed(2)+" 兆"; if(n>=1e8) return (n/1e8).toFixed(n>=1e10?0:1)+" 億"; if(n>=1e4) return (n/1e4).toFixed(n>=1e6?0:1)+" 萬"; return Math.round(n).toLocaleString(); }
+function fmtE(x){ if(x>=0.01) return x.toFixed(3); const e=Math.floor(Math.log10(x)); return (x/10**e).toFixed(2)+"×10^"+e; }
+function fit(){ const r=cv.getBoundingClientRect(), d=Math.min(devicePixelRatio||1,2); cv.width=Math.round(r.width*d); cv.height=Math.round(r.height*d); return d; }
+function P(){ return {t0:+$("t0").value, N0:Math.pow(10,+$("n0").value), T2:+$("t2").value, t1:+$("t1").value, g:+$("g").value/100}; }
+function draw(){
+  const p=P(), d=fit(), W=cv.width, H=cv.height;
+  $("t0v").textContent=p.t0; $("n0v").textContent=fmtN(p.N0); $("t2v").textContent=p.T2.toFixed(2)+" 年"; $("t1v").textContent=p.t1;
+  $("gv").textContent=(p.g>=0?"+":"")+(p.g*100).toFixed(0)+"%";
+  ctx.fillStyle="#12161D"; ctx.fillRect(0,0,W,H);
+  const L=46*d, R=W-12*d, T=14*d, B=H-26*d, X0=1960, X1=2040;
+  const fx=t=>L+(t-X0)/(X1-X0)*(R-L);
+  let Y0,Y1; if(mode===1){ Y0=0; Y1=12; } else { Y0=-12; Y1=1; }
+  const fy=v=>B-(v-Y0)/(Y1-Y0)*(B-T);
+  ctx.font=`${10*d}px Menlo,monospace`; ctx.lineWidth=d;
+  for(let v=Y0; v<=Y1; v++){ ctx.strokeStyle=C.grid; ctx.beginPath(); ctx.moveTo(L,fy(v)); ctx.lineTo(R,fy(v)); ctx.stroke();
+    if((Y1-Y0)<=13 || v%2===0){ ctx.fillStyle=C.muted; ctx.fillText("10"+sup(v),4*d,fy(v)+3*d); } }
+  for(let t=X0;t<=X1;t+=10){ ctx.strokeStyle=C.grid; ctx.beginPath(); ctx.moveTo(fx(t),T); ctx.lineTo(fx(t),B); ctx.stroke(); ctx.fillStyle=C.muted; ctx.fillText(String(t),fx(t)-14*d,B+16*d); }
+  ctx.strokeStyle=C.line; ctx.strokeRect(L,T,R-L,B-T);
+  const span=p.t1-p.t0;
+  if(mode===1){
+    // 模型曲線（實線到終點、虛線延伸）
+    const curve=(a,b,dash,col,w)=>{ ctx.setLineDash(dash); ctx.strokeStyle=col; ctx.lineWidth=w*d; ctx.beginPath(); let st=0;
+      for(let t=a;t<=b;t+=0.25){ const v=Math.log10(p.N0)+(t-p.t0)/p.T2*Math.LOG10E*Math.LN2; if(v<Y0-1||v>Y1+1){st=0;continue;} st?ctx.lineTo(fx(t),fy(v)):ctx.moveTo(fx(t),fy(v)); st=1; } ctx.stroke(); ctx.setLineDash([]); };
+    curve(X0,p.t0,[4*d,4*d],C.muted,1.2); curve(p.t0,p.t1,[],C.sig,2.2); curve(p.t1,X1,[4*d,4*d],C.sig,1.2);
+    // 真實晶片
+    ctx.font=`${9.5*d}px "PingFang TC",sans-serif`;
+    let worst=null;
+    CHIPS.forEach(([t,n,name,multi],i)=>{ const x=fx(t), y=fy(Math.log10(n)); ctx.beginPath(); ctx.arc(x,y,4*d,0,7);
+      if(multi){ ctx.strokeStyle=C.gold; ctx.lineWidth=1.6*d; ctx.stroke(); } else { ctx.fillStyle=C.gold; ctx.fill(); }
+      if(W>520*d || i%2===0){ ctx.fillStyle=C.text; ctx.fillText(name,x+6*d,y+(i%2?11:-5)*d); }
+      const pred=p.N0*Math.pow(2,(t-p.t0)/p.T2), r=n/pred; if(!worst||Math.abs(Math.log(r))>Math.abs(Math.log(worst[1]))) worst=[name,r]; });
+    // 摩爾 1965 預測
+    const mx=fx(MOORE65[0]), my=fy(Math.log10(MOORE65[1])); ctx.fillStyle=C.euv; ctx.beginPath(); ctx.moveTo(mx,my-6*d); ctx.lineTo(mx+6*d,my); ctx.lineTo(mx,my+6*d); ctx.lineTo(mx-6*d,my); ctx.fill();
+    // 終點
+    const Nend=p.N0*Math.pow(2,span/p.T2), ex=fx(p.t1), ey=fy(Math.log10(Nend));
+    if(ey>T&&ey<B){ ctx.strokeStyle=C.risk; ctx.lineWidth=1.5*d; ctx.beginPath(); ctx.arc(ex,ey,7*d,0,7); ctx.stroke(); }
+    ctx.fillStyle=C.muted; ctx.font=`${10*d}px "PingFang TC",sans-serif`; ctx.fillText("電晶體數（對數座標）",L+6*d,T+12*d);
+    $("rd").innerHTML=`${p.t0} 年 ${fmtN(p.N0)} 顆，每 ${p.T2.toFixed(2)} 年翻倍 → ${p.t1} 年 <b>${fmtN(Nend)} 顆</b>（${(span/p.T2).toFixed(1)} 次翻倍，×${fmtN(Math.pow(2,span/p.T2))}）<br>14 點擬合 T₂ = <i>${FIT.T2.toFixed(2)} 年</i>　｜　離目前曲線最遠的晶片：${worst[0]}（實際 ÷ 預測 = ${worst[1]>=1?worst[1].toFixed(1)+" 倍":"1/"+(1/worst[1]).toFixed(1)}）`;
+  } else {
+    const k=1/p.T2-Math.log2(1+p.g); // 每年 log2 下降量
+    const val=t=>Math.log10(Math.pow(1+p.g,t-p.t0)/Math.pow(2,(t-p.t0)/p.T2));
+    const chipv=t=>Math.log10(Math.pow(1+p.g,t-p.t0));
+    const line=(f,col,w,dash)=>{ ctx.setLineDash(dash); ctx.strokeStyle=col; ctx.lineWidth=w*d; ctx.beginPath(); let st=0;
+      for(let t=p.t0;t<=X1;t+=0.25){ const v=f(t); if(v<Y0||v>Y1){st=0;continue;} st?ctx.lineTo(fx(t),fy(v)):ctx.moveTo(fx(t),fy(v)); st=1; } ctx.stroke(); ctx.setLineDash([]); };
+    line(chipv,C.si,1.4,[5*d,4*d]); line(val,C.sig,2.4,[]);
+    const ex=fx(p.t1), ev=val(p.t1); if(ev>Y0){ ctx.strokeStyle=C.risk; ctx.lineWidth=1.5*d; ctx.beginPath(); ctx.arc(ex,fy(ev),7*d,0,7); ctx.stroke(); }
+    ctx.font=`${10*d}px "PingFang TC",sans-serif`; ctx.fillStyle=C.sig; ctx.fillText("每顆電晶體的相對價格（起點＝1）",L+6*d,T+12*d);
+    ctx.fillStyle=C.si; ctx.fillText("每顆晶片的相對售價（虛線，假設）",L+6*d,T+26*d);
+    ctx.fillStyle=C.muted; ctx.fillText("相對指數示意，非實際價格",R-150*d,B-8*d);
+    const rel=Math.pow(10,val(p.t1));
+    const half=k>0? (1/k).toFixed(2)+" 年減半" : "不會下降";
+    $("rd").innerHTML=`假設晶片售價每年 ${(p.g>=0?"+":"")+(p.g*100).toFixed(0)}%、電晶體數每 ${p.T2.toFixed(2)} 年翻倍 → 每顆電晶體的相對價格 <b>${half}</b><br>${p.t0}→${p.t1} 年（${span} 年）後只剩起點的 <b>${fmtE(rel)}</b>　｜　書中：快捷晶片 120→15 美元（1961–62）、20→2 美元（1960 年代中期）`;
+  }
+}
+function sup(v){ const m={"-":"⁻","0":"⁰","1":"¹","2":"²","3":"³","4":"⁴","5":"⁵","6":"⁶","7":"⁷","8":"⁸","9":"⁹"}; return String(v).split("").map(c=>m[c]).join(""); }
+function setMode(m){ mode=m; $("m1").classList.toggle("on",m===1); $("m2").classList.toggle("on",m===2); $("ctl").classList.toggle("price",m===2); draw(); }
+$("m1").addEventListener("click",()=>setMode(1)); $("m2").addEventListener("click",()=>setMode(2));
+$("fit").addEventListener("click",()=>{ $("t0").value=1971; $("n0").value=Math.log10(FIT.n1971).toFixed(3); $("t2").value=FIT.T2.toFixed(2); draw(); });
+["t0","n0","t2","t1","g"].forEach(id=>$(id).addEventListener("input",draw));
+addEventListener("resize",draw);
+$("n0").value=Math.log10(FIT.n1971).toFixed(3); $("t2").value=FIT.T2.toFixed(2); draw();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>精準打擊的機率</title>
+<style>
+:root{--bg:#0B0E13;--panel:#12161D;--line:#2A323E;--text:#E6EAF0;--muted:#97A1B0;
+--si:#8FA6BF;--euv:#8B6CFF;--sig:#4FD1A5;--risk:#E5534B;--gold:#E3B341;--cu:#D08B5B}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+font-family:"PingFang TC","Noto Sans TC",system-ui,sans-serif;overflow:hidden;-webkit-tap-highlight-color:transparent}
+#app{display:flex;flex-direction:column;height:100%;padding:8px 10px 6px}
+header{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+h1{font-size:14px;margin:0;font-weight:600}
+.read{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--muted);min-height:32px;line-height:1.45}
+.read b{color:var(--gold);font-weight:600}.read i{color:var(--sig);font-style:normal}.read u{color:var(--risk);text-decoration:none}
+#cv{flex:1;min-height:0;width:100%;display:block;margin:6px 0;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
+.ctl{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;font-size:12px}
+select,button{font:inherit;font-size:12px;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 8px;cursor:pointer;min-height:30px;max-width:100%}
+label{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}
+label span.v{font-family:ui-monospace,Menlo,monospace;color:var(--text);min-width:58px;display:inline-block}
+input[type=range]{width:110px;accent-color:var(--sig);height:26px}
+.src{font-size:10.5px;color:var(--muted);margin-top:3px;line-height:1.35}
+@media (max-width:480px){.ctl{gap:5px 8px;font-size:11px}input[type=range]{width:84px}.read{font-size:11px}h1{font-size:13px}}
+.tag{position:fixed;right:8px;bottom:4px;font-size:10px;color:var(--muted);opacity:.8;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>精準打擊的機率：要投幾發才打得中？</h1>
+    <select id="pre" aria-label="情境">
+      <option value="365.8">二戰 1943 轟炸機・CEP 1,200 ft（366 m）</option>
+      <option value="128" selected>越戰初期無導引炸彈・CEP 420 ft（128 m）</option>
+      <option value="6.1">鋪路雷射導引 Mk 84・越戰實測 20 ft（6 m）</option>
+      <option value="3.05">波灣戰爭精準彈藥・平均 10 ft（3 m）</option>
+      <option value="custom">自訂</option>
+    </select>
+  </header>
+  <div class="read" id="rd"></div>
+  <canvas id="cv"></canvas>
+  <div class="ctl">
+    <label>CEP <input id="c" type="range" min="0" max="1000" step="1" value="700"><span class="v" id="cv2"></span></label>
+    <label>目標半徑 R <input id="r" type="range" min="1" max="100" step="1" value="15"><span class="v" id="rv"></span></label>
+    <label>投彈數 <input id="n" type="range" min="1" max="500" step="1" value="100"><span class="v" id="nv"></span></label>
+    <button id="again">重新投彈</button>
+  </div>
+  <div class="src">CEP 來源：John T. Correll〈The Emergence of Smart Bombs〉，Air Force Magazine，2010-03（二戰、越戰、鋪路、波灣數字；書中亦引越戰 420 ft）。「平均誤差」與 CEP 口徑不完全相同，這裡一律當 CEP 計算。「命中一發即摧毀」是教學假設。</div>
+</div>
+<div class="tag">圓形常態分布・真實計算</div>
+<script>
+(() => {
+"use strict";
+/* 模型：落點為二維圓形常態分布，兩軸獨立、標準差 σ；CEP（圓概率誤差）＝一半落點所在圓的半徑，
+   CEP = σ·√(2 ln 2) ≈ 1.1774 σ。
+   單發落在半徑 R 的圓形目標內：P = 1 − 0.5^((R/CEP)^2)（瞄準點＝目標中心，無系統偏差）。
+   90% 摧毀所需發數：n = ceil( ln 0.1 / ln(1 − P) )，假設命中一發即摧毀、各發獨立。
+   畫面落點：mulberry32 固定種子＋Box–Muller，隨機但可重現；按「重新投彈」換下一個種子。
+   資料來源：John T. Correll, "The Emergence of Smart Bombs", Air Force Magazine, March 2010
+   （1943 年轟炸機 CEP 1,200 ft；越戰初期 420 ft；鋪路 Mk 84 越戰實測平均 20 ft；波灣戰爭精準彈藥平均 10 ft）。 */
+const $=id=>document.getElementById(id), cv=$("cv"), ctx=cv.getContext("2d");
+const C={line:"#2A323E",text:"#E6EAF0",muted:"#97A1B0",si:"#8FA6BF",sig:"#4FD1A5",risk:"#E5534B",gold:"#E3B341",euv:"#8B6CFF",grid:"#1E2530"};
+const PRE=[["二戰 1943",365.8],["越戰無導引",128],["鋪路 Mk84",6.1],["波灣精準",3.05]];
+const CMIN=1, CMAX=1000;
+const s2c=v=>CMIN*Math.pow(CMAX/CMIN,v/1000), c2s=c=>Math.round(1000*Math.log(c/CMIN)/Math.log(CMAX/CMIN));
+let seedBase=20260118, pts=[], cepVal=128;
+function mulberry(a){ return ()=>{ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+function drop(){ const r=mulberry(seedBase); pts=[]; for(let i=0;i<500;i++){ const u1=1-r(), u2=r(); const m=Math.sqrt(-2*Math.log(u1)); pts.push([m*Math.cos(2*Math.PI*u2), m*Math.sin(2*Math.PI*u2)]); } }
+const pHit=(R,cep)=>1-Math.pow(0.5,(R/cep)*(R/cep));
+const n90=P=>P>=1?1:(P<=0?Infinity:Math.ceil(Math.log(0.1)/Math.log(1-P)));
+function fit(){ const r=cv.getBoundingClientRect(), d=Math.min(devicePixelRatio||1,2); cv.width=Math.round(r.width*d); cv.height=Math.round(r.height*d); return d; }
+function fmtM(x){ return x>=100?x.toFixed(0):x>=10?x.toFixed(1):x.toFixed(2); }
+function draw(){
+  const cep=cepVal, R=+$("r").value, N=+$("n").value, sig=cep/Math.sqrt(2*Math.log(2));
+  $("cv2").textContent=fmtM(cep)+" m"; $("rv").textContent=R+" m"; $("nv").textContent=N+" 發";
+  const P=pHit(R,cep), need=n90(P);
+  const d=fit(), W=cv.width, H=cv.height;
+  ctx.fillStyle="#12161D"; ctx.fillRect(0,0,W,H);
+  const font=s=>`${s*d}px "PingFang TC","Noto Sans TC",sans-serif`;
+  const wide=W>520*d, S=wide?Math.min(W*0.56,H)-16*d:Math.min(W,H)-16*d;
+  const cx=8*d+S/2, cy=H/2;
+  const view=Math.max(2.6*cep,1.6*R), k=(S/2)/view;
+  // 靶場網格（每格依比例尺）
+  const step=Math.pow(10,Math.floor(Math.log10(view/2)));
+  ctx.strokeStyle=C.grid; ctx.lineWidth=d;
+  for(let g=-Math.ceil(view/step)*step; g<=view; g+=step){ const p=g*k;
+    ctx.beginPath(); ctx.moveTo(cx+p,cy-S/2); ctx.lineTo(cx+p,cy+S/2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx-S/2,cy+p); ctx.lineTo(cx+S/2,cy+p); ctx.stroke(); }
+  ctx.fillStyle=C.muted; ctx.font=font(10.5); ctx.fillText(`格線 ${step>=1?step:step.toFixed(1)} m`, cx-S/2+4*d, cy+S/2-6*d);
+  // CEP 圓
+  ctx.setLineDash([5*d,4*d]); ctx.strokeStyle=C.euv; ctx.lineWidth=1.4*d;
+  ctx.beginPath(); ctx.arc(cx,cy,cep*k,0,7); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle=C.euv; ctx.fillText("CEP：一半落點在圈內", cx+cep*k*0.72, cy-cep*k*0.72-4*d);
+  // 目標
+  const rt=Math.max(R*k,2.5*d);
+  ctx.fillStyle="rgba(227,179,65,.22)"; ctx.strokeStyle=C.gold; ctx.lineWidth=1.6*d;
+  ctx.beginPath(); ctx.arc(cx,cy,rt,0,7); ctx.fill(); ctx.stroke();
+  if(R*k<6*d){ ctx.beginPath(); ctx.arc(cx,cy,10*d,0,7); ctx.stroke(); ctx.fillStyle=C.gold; ctx.fillText("目標（放大標示）", cx+12*d, cy+14*d); }
+  // 落點
+  let hits=0, out=0;
+  for(let i=0;i<N;i++){ const x=pts[i][0]*sig, y=pts[i][1]*sig, hit=x*x+y*y<=R*R; if(hit) hits++;
+    if(Math.abs(x)>view||Math.abs(y)>view){ out++; continue; }
+    ctx.fillStyle=hit?C.sig:"rgba(229,83,75,.8)"; ctx.beginPath(); ctx.arc(cx+x*k,cy+y*k,(hit?3:2.2)*d,0,7); ctx.fill(); }
+  // 右側：90% 摧毀需要幾發 vs CEP（log-log）
+  if(wide){
+    const gx=cx+S/2+40*d, gw=W-gx-14*d, gy=26*d, gh=H-62*d;
+    ctx.strokeStyle=C.line; ctx.lineWidth=d; ctx.strokeRect(gx,gy,gw,gh);
+    ctx.fillStyle=C.muted; ctx.font=font(11);
+    ctx.fillText(`達到 90% 摧毀要幾發（R = ${R} m）`, gx, gy-9*d);
+    const X=c=>gx+gw*Math.log(c/CMIN)/Math.log(CMAX/CMIN), YMAX=1e5, Yp=n=>gy+gh*(1-Math.log10(Math.min(n,YMAX))/Math.log10(YMAX));
+    ctx.font=font(10);
+    for(let e=0;e<=5;e++){ const y=Yp(Math.pow(10,e)); ctx.strokeStyle=C.grid; ctx.beginPath(); ctx.moveTo(gx,y); ctx.lineTo(gx+gw,y); ctx.stroke(); ctx.fillStyle=C.muted; ctx.fillText(e<4?String(Math.pow(10,e)):"1e"+e, gx-30*d, y+3*d); }
+    for(const c of [1,10,100,1000]){ ctx.fillStyle=C.muted; ctx.fillText(c+" m", X(c)-8*d, gy+gh+14*d); }
+    ctx.fillText("CEP →", gx+gw-34*d, gy+gh+26*d);
+    ctx.strokeStyle=C.sig; ctx.lineWidth=2*d; ctx.beginPath();
+    for(let q=0;q<=200;q++){ const c=CMIN*Math.pow(CMAX/CMIN,q/200), y=Yp(n90(pHit(R,c))); q?ctx.lineTo(X(c),y):ctx.moveTo(X(c),y); }
+    ctx.stroke();
+    for(const [nm,c] of PRE){ const y=Yp(n90(pHit(R,c))); ctx.fillStyle=C.si; ctx.beginPath(); ctx.arc(X(c),y,3.2*d,0,7); ctx.fill(); ctx.fillText(nm, X(c)+5*d, y-5*d); }
+    ctx.fillStyle=C.gold; ctx.beginPath(); ctx.arc(X(cep),Yp(need),5*d,0,7); ctx.fill();
+  }
+  const atLeast=1-Math.pow(1-P,N);
+  $("rd").innerHTML=`單發命中 <b>${(P*100).toPrecision(3)}%</b>　｜　達到 90% 摧毀需 <b>${need===Infinity?"∞":need.toLocaleString()}</b> 發（R/CEP = ${(R/cep).toFixed(3)}）<br>`+
+    `這次投 ${N} 發：<i>命中 ${hits}</i>、<u>落空 ${N-hits}</u>${out?`（${out} 發落在畫面外）`:""}，理論期望 ${(N*P).toFixed(1)} 發；至少一發命中的機率 ${(atLeast*100).toFixed(1)}%`;
+}
+$("pre").addEventListener("change",e=>{ if(e.target.value!=="custom"){ cepVal=+e.target.value; $("c").value=c2s(cepVal); } draw(); });
+$("c").addEventListener("input",()=>{ $("pre").value="custom"; cepVal=s2c(+$("c").value); draw(); });
+["r","n"].forEach(id=>$(id).addEventListener("input",draw));
+$("again").addEventListener("click",()=>{ seedBase=(seedBase*48271)%2147483647; drop(); draw(); });
+addEventListener("resize",draw);
+$("c").value=c2s(128); drop(); draw();
+})();
+</script>
+</body>
+</html>

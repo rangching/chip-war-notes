@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>學習曲線與價格戰</title>
+<style>
+:root{--bg:#0B0E13;--panel:#12161D;--line:#2A323E;--text:#E6EAF0;--muted:#97A1B0;
+--si:#8FA6BF;--euv:#8B6CFF;--sig:#4FD1A5;--risk:#E5534B;--gold:#E3B341;--cu:#D08B5B}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+font-family:"PingFang TC","Noto Sans TC",system-ui,sans-serif;overflow:hidden;-webkit-tap-highlight-color:transparent}
+#app{display:flex;flex-direction:column;height:100%;padding:8px 10px 6px}
+header{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+h1{font-size:14px;margin:0;font-weight:600}
+.read{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--muted);min-height:32px;line-height:1.4}
+.read b{color:var(--gold);font-weight:600}.read i{color:var(--sig);font-style:normal}.read u{color:var(--risk);text-decoration:none}
+#cv{flex:1;min-height:0;width:100%;display:block;margin:6px 0;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
+.ctl{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;font-size:12px}
+button{font:inherit;font-size:12px;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer;min-height:30px}
+button.on{background:#1f2834;border-color:var(--sig)}
+label{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}
+label span.v{font-family:ui-monospace,Menlo,monospace;color:var(--text);min-width:46px;display:inline-block}
+input[type=range]{width:96px;accent-color:var(--sig);height:26px}
+.us{color:var(--gold)}.jp{color:var(--risk)}
+#hyp{display:none;position:fixed;inset:8px;background:rgba(18,22,29,.97);border:1px solid var(--line);border-radius:8px;padding:12px 14px;font-size:12px;line-height:1.6;overflow:auto;z-index:5}
+#hyp.show{display:block}
+#hyp h2{font-size:13px;margin:0 0 6px}
+#hyp ol{margin:0;padding-left:20px}
+@media (max-width:480px){.ctl{gap:5px 8px;font-size:11px}input[type=range]{width:74px}.read{font-size:11px}h1{font-size:13px}}
+.tag{position:fixed;right:8px;bottom:4px;font-size:10px;color:var(--muted);opacity:.8;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="app">
+  <header><h1>學習曲線與價格戰：<span class="us">美國廠</span> vs <span class="jp">日本廠</span></h1>
+    <span><button id="reset">回到預設</button> <button id="hb">模型假設</button></span></header>
+  <div class="read" id="rd"></div>
+  <canvas id="cv"></canvas>
+  <div class="ctl">
+    <label>學習率 r <input id="r" type="range" min="5" max="35" step="1" value="20"><span class="v" id="rv"></span></label>
+    <label><span class="us">美</span>資金成本 <input id="ius" type="range" min="3" max="25" step="0.5" value="18"><span class="v" id="iusv"></span></label>
+    <label><span class="jp">日</span>資金成本 <input id="ijp" type="range" min="3" max="25" step="0.5" value="6.5"><span class="v" id="ijpv"></span></label>
+    <label><span class="us">美</span>擴產／年 <input id="gus" type="range" min="0" max="100" step="5" value="30"><span class="v" id="gusv"></span></label>
+    <label><span class="jp">日</span>擴產／年 <input id="gjp" type="range" min="0" max="100" step="5" value="60"><span class="v" id="gjpv"></span></label>
+    <label><span class="jp">日</span>銀行支撐 <input id="ejp" type="range" min="20" max="400" step="10" value="200"><span class="v" id="ejpv"></span></label>
+    <button id="stop" class="on">美方虧損時停止擴產</button>
+    <button id="floor">第 5 年起價格下限</button>
+  </div>
+</div>
+<div id="hyp" role="dialog" aria-label="模型假設">
+  <h2>模型假設（教學示意，不是 1980 年代的實際數據）</h2>
+  <ol>
+    <li><b>學習曲線（Wright 法則）：</b>兩家用同一條曲線，學習成本 c = (Q/100)<sup>−b</sup>，b = −log₂(1−r)；Q 是自己的累積產量。累積產量每翻倍，學習成本降 r。預設 r = 20%，參考 Irwin &amp; Klenow（1994）對 1974–92 年七代 DRAM 的平均估計。</li>
+    <li><b>資本成本：</b>每單位年產能需要 1 單位設備，每年要付（利率＋折舊 20%）。預設美國 18%、日本 6.5%，取自書中 AMD 桑德斯的說法（1980 年代：日本 6–7%、他 18%）。</li>
+    <li><b>起點：</b>美國廠先起步，年產能 100、累積 100；日本廠年產能 60、累積 60，所以一開始日本的學習成本較高。</li>
+    <li><b>市場價格：</b>兩家全力生產，價格讓需求等於總產量：需求 = D₀·e<sup>0.2t</sup>·P<sup>−0.8</sup>（需求每年成長 20%、價格彈性 0.8），第 0 年價格設為 1.8。</li>
+    <li><b>擴產規則：</b>美國廠一旦價格低於自己的成本就停止擴產（可關掉）；日本廠追求市占，只要累積虧損未超過「銀行支撐」的一半就照常擴產。</li>
+    <li><b>退出：</b>累積虧損超過可承受額度就退出市場（美國固定 60，日本＝銀行支撐，預設 200）。</li>
+    <li><b>價格下限：</b>開啟後，第 5 年起價格不得低於日本廠成本，賣不完的部分不出貨；這是 1986 年美日半導體協議「監督出口價格」的簡化示意。</li>
+    <li>每季計算一次，共 10 年。數值都是相對單位，沒有對應任何公司的實際成本或價格。</li>
+  </ol>
+  <p><button id="hc">關閉</button></p>
+</div>
+<div class="tag">Wright 學習曲線＋市場結清・真實計算</div>
+<script>
+(() => {
+"use strict";
+/* 學習曲線與價格戰（教學示意模型；與 calc_u05.py 的 sim() 同一套規則）
+   成本 = 學習成本 (Q/100)^(−b) + 資本成本 k(i+δ)，k = 1、δ = 0.2，b = −log2(1−r)。
+   價格：需求 Q_d = D0·e^{γt}·P^{−ε}（γ = 0.2、ε = 0.8，D0 使第 0 年總產能 160 時價格 = 1.8），由總產能結清。
+   擴產：美國廠價格低於成本時停擴（可關）；日本廠累積虧損未超過可承受額度一半時照常擴產。累積虧損超過額度即退出。
+   價格下限：第 5 年起 P ≥ 日本廠成本，銷量 = 該價格下的需求，依產能比例分配。
+   參數來源：學習率 20% 參考 Irwin & Klenow（1994, JPE）；資金成本 18% vs 6–7% 為書中桑德斯的說法（Miller 2022，1980 年代）。
+   其他數值皆為教學假設。 */
+const $=id=>document.getElementById(id), cv=$("cv"), ctx=cv.getContext("2d");
+const C={line:"#2A323E",text:"#E6EAF0",muted:"#97A1B0",si:"#8FA6BF",sig:"#4FD1A5",risk:"#E5534B",gold:"#E3B341",grid:"#1E2530"};
+const EPS=0.8, GAM=0.2, K=1, DLT=0.2, YEARS=10, E_US=60;
+let stopUS=true, floorOn=false;
+function sim(o){
+  const b=-Math.log2(1-o.r);
+  const F={US:{K:100,Q:100,i:o.ius,g:o.gus,cash:0,E:E_US,alive:true,below:null,exit:null},
+           JP:{K:60,Q:60,i:o.ijp,g:o.gjp,cash:0,E:o.ejp,alive:true,below:null,exit:null}};
+  const D0=160*Math.pow(1.8,EPS), dt=0.25, rows=[];
+  for(let step=0; step<YEARS/dt; step++){
+    const t=step*dt;
+    const cost={}; for(const n in F) cost[n]=Math.pow(F[n].Q/100,-b)+K*(F[n].i+DLT);
+    let S=0; for(const n in F) if(F[n].alive) S+=F[n].K;
+    if(S<=0) break;
+    const D=D0*Math.exp(GAM*t);
+    let P=Math.pow(S/D,-1/EPS);
+    const sold={}; for(const n in F) sold[n]=F[n].alive?F[n].K:0;
+    let floored=false;
+    if(o.floor && t>=5 && F.JP.alive && P<cost.JP){ P=cost.JP; const Qd=D*Math.pow(P,-EPS); for(const n in F) sold[n]=F[n].alive?F[n].K/S*Qd:0; floored=true; }
+    const snap={t,P,cUS:cost.US,cJP:cost.JP,aUS:F.US.alive,aJP:F.JP.alive,floored};
+    for(const n in F){ const f=F[n]; if(!f.alive) continue;
+      f.cash+=(P-cost[n])*sold[n]*dt; f.Q+=sold[n]*dt;
+      if(P<cost[n] && f.below===null) f.below=t;
+      let g=f.g; if(n==="US" && o.stop && P<cost[n]) g=0; if(n==="JP" && f.cash<-0.5*f.E) g=0;
+      f.K*=Math.pow(1+g,dt);
+      if(f.cash<-f.E){ f.alive=false; f.exit=t; } }
+    snap.cashUS=F.US.cash; snap.cashJP=F.JP.cash; snap.KUS=F.US.alive?F.US.K:0; snap.KJP=F.JP.alive?F.JP.K:0;
+    rows.push(snap);
+  }
+  return {F,rows};
+}
+function P(){ return {r:+$("r").value/100, ius:+$("ius").value/100, ijp:+$("ijp").value/100, gus:+$("gus").value/100, gjp:+$("gjp").value/100, ejp:+$("ejp").value, stop:stopUS, floor:floorOn}; }
+function fit(){ const r=cv.getBoundingClientRect(), d=Math.min(devicePixelRatio||1,2); cv.width=Math.round(r.width*d); cv.height=Math.round(r.height*d); return d; }
+function draw(){
+  const o=P(), d=fit(), W=cv.width, H=cv.height;
+  $("rv").textContent=(o.r*100).toFixed(0)+"%"; $("iusv").textContent=(o.ius*100).toFixed(1)+"%"; $("ijpv").textContent=(o.ijp*100).toFixed(1)+"%";
+  $("gusv").textContent=(o.gus*100).toFixed(0)+"%"; $("gjpv").textContent=(o.gjp*100).toFixed(0)+"%"; $("ejpv").textContent=o.ejp;
+  const {F,rows}=sim(o);
+  ctx.fillStyle="#12161D"; ctx.fillRect(0,0,W,H);
+  const wide=W>H*1.3;
+  const A=wide?{x:40*d,y:22*d,w:W*0.6-56*d,h:H-48*d}:{x:40*d,y:22*d,w:W-52*d,h:H*0.58-40*d};
+  const B=wide?{x:W*0.6+30*d,y:22*d,w:W*0.4-42*d,h:H-48*d}:{x:40*d,y:H*0.58+18*d,w:W-52*d,h:H*0.42-40*d};
+  const font=s=>`${s*d}px "PingFang TC",sans-serif`;
+  // ---------- A：價格與成本
+  const ymax=Math.max(2,...rows.map(r=>Math.max(r.P,r.cUS,r.cJP)))*1.02;
+  const ax=t=>A.x+t/YEARS*A.w, ay=v=>A.y+A.h-v/ymax*A.h;
+  ctx.strokeStyle=C.line; ctx.lineWidth=d; ctx.strokeRect(A.x,A.y,A.w,A.h);
+  ctx.fillStyle=C.muted; ctx.font=font(10.5); ctx.fillText("價格（綠）與每單位成本",A.x,A.y-7*d);
+  for(let v=0; v<=ymax; v+=0.5){ ctx.strokeStyle=C.grid; ctx.beginPath(); ctx.moveTo(A.x,ay(v)); ctx.lineTo(A.x+A.w,ay(v)); ctx.stroke(); ctx.fillStyle=C.muted; ctx.fillText(v.toFixed(1),A.x-26*d,ay(v)+4*d); }
+  for(let t=0;t<=YEARS;t+=2){ ctx.fillStyle=C.muted; ctx.fillText("第"+t+"年",ax(t)-12*d,A.y+A.h+14*d); }
+  // 虧損區塊（價格低於美國成本）
+  rows.forEach(r=>{ if(r.aUS && r.P<r.cUS){ ctx.fillStyle="rgba(227,179,65,.10)"; ctx.fillRect(ax(r.t),A.y,A.w/YEARS*0.25+0.5,A.h); } if(r.floored){ ctx.fillStyle="rgba(139,108,255,.10)"; ctx.fillRect(ax(r.t),A.y,A.w/YEARS*0.25+0.5,A.h); } });
+  const line=(key,col,w,alive)=>{ ctx.strokeStyle=col; ctx.lineWidth=w*d; ctx.beginPath(); let st=0; rows.forEach(r=>{ if(alive && !r[alive]){ st=0; return; } const x=ax(r.t), y=ay(r[key]); st?ctx.lineTo(x,y):ctx.moveTo(x,y); st=1; }); ctx.stroke(); };
+  line("cUS",C.gold,1.8,"aUS"); line("cJP",C.risk,1.8,"aJP"); line("P",C.sig,2.6);
+  const mark=(f,col,label)=>{ if(f.exit===null) return; const x=ax(f.exit); ctx.strokeStyle=col; ctx.setLineDash([4*d,3*d]); ctx.beginPath(); ctx.moveTo(x,A.y); ctx.lineTo(x,A.y+A.h); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=col; ctx.font=font(10); ctx.fillText(label+"退出",Math.min(x+3*d,A.x+A.w-48*d),A.y+14*d+(label==="日本"?14*d:0)); };
+  mark(F.US,C.gold,"美國"); mark(F.JP,C.risk,"日本");
+  // ---------- B：累積損益
+  const cs=rows.flatMap(r=>[r.cashUS,r.cashJP]), cmin=Math.min(-o.ejp,-E_US,...cs)*1.08, cmax=Math.max(50,...cs)*1.08;
+  const bx=t=>B.x+t/YEARS*B.w, by=v=>B.y+B.h-(v-cmin)/(cmax-cmin)*B.h;
+  ctx.strokeStyle=C.line; ctx.strokeRect(B.x,B.y,B.w,B.h);
+  ctx.fillStyle=C.muted; ctx.font=font(10.5); ctx.fillText("累積損益（虛線＝可承受虧損）",B.x,B.y-7*d);
+  ctx.strokeStyle=C.muted; ctx.beginPath(); ctx.moveTo(B.x,by(0)); ctx.lineTo(B.x+B.w,by(0)); ctx.stroke(); ctx.fillText("0",B.x-12*d,by(0)+4*d);
+  ctx.setLineDash([4*d,3*d]); ctx.strokeStyle=C.gold; ctx.beginPath(); ctx.moveTo(B.x,by(-E_US)); ctx.lineTo(B.x+B.w,by(-E_US)); ctx.stroke();
+  ctx.strokeStyle=C.risk; ctx.beginPath(); ctx.moveTo(B.x,by(-o.ejp)); ctx.lineTo(B.x+B.w,by(-o.ejp)); ctx.stroke(); ctx.setLineDash([]);
+  const bl=(key,col)=>{ ctx.strokeStyle=col; ctx.lineWidth=2*d; ctx.beginPath(); rows.forEach((r,i)=>{ const x=bx(r.t), y=by(r[key]); i?ctx.lineTo(x,y):ctx.moveTo(x,y); }); ctx.stroke(); };
+  bl("cashUS",C.gold); bl("cashJP",C.risk);
+  for(let t=0;t<=YEARS;t+=5){ ctx.fillStyle=C.muted; ctx.fillText("第"+t+"年",bx(t)-12*d,B.y+B.h+14*d); }
+  // ---------- 讀數
+  const yr=x=>x===null?"沒有":"第 "+x.toFixed(2).replace(/\.?0+$/,"")+" 年";
+  const first = F.US.below===null && F.JP.below===null ? "兩家都沒跌破成本" :
+    (F.JP.below===null || (F.US.below!==null && F.US.below<F.JP.below)) ? `<span class="us">美國廠</span>先跌破成本` :
+    (F.US.below===null || F.JP.below<F.US.below) ? `<span class="jp">日本廠</span>先跌破成本` : "兩家同時跌破成本";
+  const last=rows[rows.length-1], share=last.KUS+last.KJP>0? last.KUS/(last.KUS+last.KJP):0;
+  $("rd").innerHTML=`${first}　｜　<span class="us">美</span>：跌破 ${yr(F.US.below)}、${F.US.exit===null?"<i>撐到第 10 年</i>":"<u>"+yr(F.US.exit)+"退出</u>"}　<span class="jp">日</span>：跌破 ${yr(F.JP.below)}、${F.JP.exit===null?"<i>撐到第 10 年</i>":"<u>"+yr(F.JP.exit)+"退出</u>"}<br>第 10 年價格 <b>${last.P.toFixed(2)}</b>（起點 1.80）　美國產能占比 <b>${(share*100).toFixed(0)}%</b>　｜　教學示意模型，按「模型假設」看規則`;
+}
+const DEF={r:20,ius:18,ijp:6.5,gus:30,gjp:60,ejp:200};
+$("reset").addEventListener("click",()=>{ for(const k in DEF) $(k).value=DEF[k]; stopUS=true; floorOn=false; $("stop").classList.add("on"); $("floor").classList.remove("on"); draw(); });
+$("stop").addEventListener("click",()=>{ stopUS=!stopUS; $("stop").classList.toggle("on",stopUS); draw(); });
+$("floor").addEventListener("click",()=>{ floorOn=!floorOn; $("floor").classList.toggle("on",floorOn); draw(); });
+$("hb").addEventListener("click",()=>$("hyp").classList.add("show")); $("hc").addEventListener("click",()=>$("hyp").classList.remove("show"));
+["r","ius","ijp","gus","gjp","ejp"].forEach(id=>$(id).addEventListener("input",draw));
+addEventListener("resize",draw); draw();
+})();
+</script>
+</body>
+</html>

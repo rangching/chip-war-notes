@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>組裝外移的工資算術</title>
+<style>
+:root{--bg:#0B0E13;--panel:#12161D;--line:#2A323E;--text:#E6EAF0;--muted:#97A1B0;
+--si:#8FA6BF;--euv:#8B6CFF;--sig:#4FD1A5;--risk:#E5534B;--gold:#E3B341;--cu:#D08B5B}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+font-family:"PingFang TC","Noto Sans TC",system-ui,sans-serif;overflow:hidden;-webkit-tap-highlight-color:transparent}
+#app{display:flex;flex-direction:column;height:100%;padding:8px 10px 6px}
+header{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+h1{font-size:14px;margin:0;font-weight:600}
+.read{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--muted);min-height:32px;line-height:1.4}
+.read b{color:var(--gold);font-weight:600}.read i{color:var(--sig);font-style:normal}.read u{color:var(--risk);text-decoration:none}
+#cv{flex:1;min-height:0;width:100%;display:block;margin:6px 0;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
+.ctl{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;font-size:12px}
+button{font:inherit;font-size:12px;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer;min-height:30px}
+button.on{background:#1f2834;border-color:var(--sig)}
+label{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}
+label span.v{font-family:ui-monospace,Menlo,monospace;color:var(--text);min-width:58px;display:inline-block}
+input[type=range]{width:100px;accent-color:var(--sig);height:26px}
+.src{font-size:10px;color:var(--muted);line-height:1.35;margin-top:3px;padding-bottom:12px}
+@media (max-width:480px){.ctl{gap:5px 8px;font-size:11px}input[type=range]{width:78px}.read{font-size:11px}h1{font-size:13px}}
+.tag{position:fixed;right:8px;bottom:4px;font-size:10px;color:var(--muted);opacity:.8;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="app">
+  <header><h1>組裝外移的工資算術（1960 年代中期）</h1><button id="r807" class="on">807 條款：只對海外加值課稅</button></header>
+  <div class="read" id="rd"></div>
+  <canvas id="cv"></canvas>
+  <div class="ctl">
+    <label>美國時薪 <input id="wu" type="range" min="1" max="4" step="0.01" value="2.61"><span class="v" id="wuv"></span></label>
+    <label>每顆組裝工時 <input id="t" type="range" min="0.1" max="10" step="0.1" value="3"><span class="v" id="tv"></span></label>
+    <label>亞洲相對速度 <input id="s" type="range" min="0.5" max="2.5" step="0.1" value="1"><span class="v" id="sv"></span></label>
+    <label>來回運費／顆 <input id="f" type="range" min="0" max="5" step="0.1" value="1"><span class="v" id="fv"></span></label>
+    <label>海外管理品管／顆 <input id="o" type="range" min="0" max="5" step="0.1" value="1"><span class="v" id="ov"></span></label>
+    <label>關稅率 <input id="tau" type="range" min="0" max="40" step="1" value="6"><span class="v" id="tauv"></span></label>
+  </div>
+  <div class="src">亞洲時薪＝書中數字（Miller《Chip War》，1960 年代中期）：香港 25、臺灣 19、馬來西亞 15、新加坡 11、南韓 10 美分。美國預設 2.61 美元＝BLS 1965 年製造業生產工人平均時薪。工時、速度、運費、管理成本、關稅率、晶粒價值（0.50 美元）皆為教學假設，不是史料。</div>
+</div>
+<div class="tag">成本模型・真實計算</div>
+<script>
+(() => {
+"use strict";
+/* 組裝外移的工資算術（教學模型）
+   本土每顆組裝成本：c_US = w_US · t / 60
+   海外每顆組裝成本：c_A  = w_A · t / (60 · s) + f + o + τ · V
+     t：每顆組裝分鐘；s：亞洲工人相對速度；f：來回運費；o：海外管理與品管；τ：關稅率。
+     V（課稅基礎）：開啟 807 條款時只算海外加值（人工＋管理）；關閉時改對整顆課稅（再加美國製晶粒價值 0.50 美元）。
+     背景：美國關稅條款 807.00／806.30 讓「美國零件在海外加工後回銷」只就海外加值課稅（美國關稅委員會 1970 年報告）。
+   損益兩平工時 t*：w_US t/60 = w_A t (1+τ)/(60 s) + f + o(1+τ)（807 開啟時）→ t* = 60 (f + o(1+τ)) / (w_US − w_A(1+τ)/s)。
+   資料：亞洲時薪為書中數字（Miller 2022，1960 年代中期）；美國 2.61 美元為 BLS 1965 年製造業生產工人平均時薪。
+   書中快捷香港廠第一年組裝 1.2 億個元件，用來把「每顆省多少」放大成「一年省多少」（示意）。 */
+const $=id=>document.getElementById(id), cv=$("cv"), ctx=cv.getContext("2d");
+const C={line:"#2A323E",text:"#E6EAF0",muted:"#97A1B0",si:"#8FA6BF",sig:"#4FD1A5",risk:"#E5534B",gold:"#E3B341",cu:"#D08B5B",euv:"#8B6CFF",grid:"#1E2530"};
+const REG=[["美國本土",null],["香港",0.25],["臺灣",0.19],["馬來西亞",0.15],["新加坡",0.11],["南韓",0.10]];
+const DIE=0.50, HK_VOL=1.2e8;
+let r807=true;
+function fit(){ const r=cv.getBoundingClientRect(), d=Math.min(devicePixelRatio||1,2); cv.width=Math.round(r.width*d); cv.height=Math.round(r.height*d); return d; }
+function P(){ return {wu:+$("wu").value, t:+$("t").value, s:+$("s").value, f:+$("f").value/100, o:+$("o").value/100, tau:+$("tau").value/100}; }
+function cost(w,p,t){ // 回傳 [人工, 運費, 管理, 關稅]
+  t = t===undefined? p.t : t;
+  if(w===null) return [p.wu*t/60,0,0,0];
+  const lab=w*t/60/p.s, base=r807? lab+p.o : lab+p.o+DIE;
+  return [lab,p.f,p.o,p.tau*base];
+}
+const sum=a=>a.reduce((x,y)=>x+y,0);
+function breakeven(w,p){ // 解 c_US(t) = c_A(t)，兩邊都是 t 的一次式
+  const extra=r807?0:DIE;
+  const slope=p.wu/60 - w*(1+p.tau)/60/p.s, cst=p.f+p.o*(1+p.tau)+p.tau*extra;
+  return slope>0? cst/slope : Infinity;
+}
+const cents=x=>(x*100).toFixed(2);
+function draw(){
+  const p=P(), d=fit(), W=cv.width, H=cv.height;
+  $("wuv").textContent="$"+p.wu.toFixed(2); $("tv").textContent=p.t.toFixed(1)+" 分"; $("sv").textContent="×"+p.s.toFixed(1);
+  $("fv").textContent=(p.f*100).toFixed(1)+"¢"; $("ov").textContent=(p.o*100).toFixed(1)+"¢"; $("tauv").textContent=(p.tau*100).toFixed(0)+"%";
+  ctx.fillStyle="#12161D"; ctx.fillRect(0,0,W,H);
+  const wide=W>H*1.25;
+  // ---------- 區塊一：每顆成本長條
+  const A={x:10*d,y:10*d,w:wide?W*0.56-20*d:W-20*d,h:wide?H-20*d:H*0.55-14*d};
+  const costs=REG.map(([n,w])=>cost(w,p)), tot=costs.map(sum), mx=Math.max(...tot)*1.08;
+  ctx.font=`${11*d}px "PingFang TC",sans-serif`; const labW=ctx.measureText("馬來西亞").width+10*d, bw=A.w-labW-56*d, rowH=A.h/(REG.length+1.7);
+  ctx.font=`${11*d}px "PingFang TC",sans-serif`; ctx.fillStyle=C.muted; ctx.fillText("每顆組裝成本（美分）",A.x,A.y+10*d);
+  const cols=[C.sig,C.si,C.cu,C.risk], names=["人工","運費","管理品管","關稅"];
+  REG.forEach(([n,w],i)=>{
+    const y=A.y+rowH*(i+0.9), h=rowH*0.62;
+    ctx.fillStyle=i?C.text:C.gold; ctx.fillText(n,A.x,y+h*0.72);
+    let x=A.x+labW;
+    costs[i].forEach((v,k)=>{ const ww=v/mx*bw; ctx.fillStyle=cols[k]; ctx.globalAlpha=i?0.85:1; ctx.fillRect(x,y,ww,h); x+=ww; });
+    ctx.globalAlpha=1; ctx.fillStyle=C.text; ctx.font=`${10.5*d}px Menlo,monospace`; ctx.fillText(cents(tot[i])+"¢",x+5*d,y+h*0.72);
+    ctx.font=`${11*d}px "PingFang TC",sans-serif`;
+  });
+  // 圖例
+  let lx=A.x+labW, ly=A.y+rowH*(REG.length+1.45);
+  names.forEach((n,k)=>{ ctx.fillStyle=cols[k]; ctx.fillRect(lx,ly-8*d,9*d,9*d); ctx.fillStyle=C.muted; ctx.fillText(n,lx+12*d,ly); lx+=ctx.measureText(n).width+26*d; });
+  // ---------- 區塊二：成本 vs 工時（美國 vs 香港）
+  const G=wide? {x:W*0.56+8*d,y:22*d,w:W*0.44-22*d,h:H-52*d} : {x:46*d,y:H*0.55+12*d,w:W-60*d,h:H*0.45-40*d};
+  const Tm=10, ymax=Math.max(p.wu*Tm/60, sum(cost(0.25,p,Tm)))*1.05;
+  const gx=t=>G.x+t/Tm*G.w, gy=v=>G.y+G.h-v/ymax*G.h;
+  ctx.strokeStyle=C.line; ctx.lineWidth=d; ctx.strokeRect(G.x,G.y,G.w,G.h);
+  ctx.fillStyle=C.muted; ctx.font=`${10*d}px "PingFang TC",sans-serif`;
+  ctx.fillText("每顆成本 vs 組裝工時（0–10 分）",G.x,G.y-6*d);
+  for(let t=0;t<=Tm;t+=2){ ctx.fillText(String(t),gx(t)-3*d,G.y+G.h+13*d); }
+  const plot=(fn,col)=>{ ctx.strokeStyle=col; ctx.lineWidth=2*d; ctx.beginPath(); for(let q=0;q<=100;q++){ const t=Tm*q/100, v=fn(t); q?ctx.lineTo(gx(t),gy(v)):ctx.moveTo(gx(t),gy(v)); } ctx.stroke(); };
+  plot(t=>p.wu*t/60,C.gold); plot(t=>sum(cost(0.25,p,t)),C.sig);
+  ctx.fillStyle=C.gold; ctx.fillText("美國",gx(Tm)-28*d,gy(p.wu*Tm/60)+14*d);
+  ctx.fillStyle=C.sig; ctx.fillText("香港",gx(Tm)-28*d,gy(sum(cost(0.25,p,Tm)))-6*d);
+  const be=breakeven(0.25,p);
+  if(be<Tm){ ctx.strokeStyle=C.risk; ctx.setLineDash([4*d,3*d]); ctx.beginPath(); ctx.moveTo(gx(be),G.y); ctx.lineTo(gx(be),G.y+G.h); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle=C.risk; ctx.fillText("兩平 "+(be*60).toFixed(0)+" 秒",Math.min(gx(be)+4*d,G.x+G.w-70*d),G.y+14*d); }
+  ctx.strokeStyle=C.text; ctx.lineWidth=1*d; ctx.beginPath(); ctx.moveTo(gx(Math.min(p.t,Tm)),G.y); ctx.lineTo(gx(Math.min(p.t,Tm)),G.y+G.h); ctx.stroke();
+  // ---------- 讀數
+  const hk=tot[1], us=tot[0], save=us-hk;
+  const cheapest=REG.slice(1).map((r,i)=>[r[0],tot[i+1]]).sort((a,b)=>a[1]-b[1])[0];
+  $("rd").innerHTML=`美國每顆 <b>${cents(us)}¢</b>，香港 <i>${cents(hk)}¢</i> → ${save>0?`每顆省 <b>${cents(save)}¢</b>，以香港廠第一年 1.2 億個估約省 <b>${(save*HK_VOL/1e6).toFixed(1)} 百萬美元</b>`:`<u>外移反而貴 ${cents(-save)}¢</u>`}<br>香港損益兩平工時：${isFinite(be)?`每顆至少 <b>${(be*60).toFixed(0)} 秒</b>`:"<u>永遠不划算</u>"}　｜　最便宜：${cheapest[0]} ${cents(cheapest[1])}¢　｜　${r807?"關稅只課海外加值":"關稅課整顆（含晶粒 $0.50）"}`;
+}
+$("r807").addEventListener("click",()=>{ r807=!r807; $("r807").classList.toggle("on",r807); $("r807").textContent=r807?"807 條款：只對海外加值課稅":"807 條款關閉：關稅課整顆晶片"; draw(); });
+["wu","t","s","f","o","tau"].forEach(id=>$(id).addEventListener("input",draw));
+addEventListener("resize",draw); draw();
+})();
+</script>
+</body>
+</html>

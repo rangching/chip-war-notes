@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>咽喉點斷鏈</title>
+<style>
+:root{--bg:#0B0E13;--panel:#12161D;--line:#2A323E;--text:#E6EAF0;--muted:#97A1B0;
+--si:#8FA6BF;--euv:#8B6CFF;--sig:#4FD1A5;--risk:#E5534B;--gold:#E3B341;--cu:#D08B5B}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+font-family:"PingFang TC","Noto Sans TC",system-ui,sans-serif;overflow:hidden;-webkit-tap-highlight-color:transparent}
+#app{display:flex;flex-direction:column;height:100%;padding:8px 10px 6px}
+header{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+h1{font-size:14px;margin:0;font-weight:600}
+.read{font-size:12px;color:var(--muted);min-height:34px;line-height:1.45}
+.read b{color:var(--gold);font-weight:600}.read i{color:var(--risk);font-style:normal}.read u{color:var(--sig);text-decoration:none}
+#cv{flex:1;min-height:0;width:100%;display:block;margin:6px 0;border:1px solid var(--line);border-radius:8px;background:var(--panel);touch-action:manipulation}
+.ctl{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;font-size:12px}
+.ctl[hidden]{display:none}
+select,button{font:inherit;font-size:12px;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 8px;min-height:30px;cursor:pointer}
+button.on{border-color:var(--gold);color:var(--gold)}
+label{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}
+label span.v{font-family:ui-monospace,Menlo,monospace;color:var(--text);min-width:52px;display:inline-block}
+input[type=range]{width:120px;accent-color:var(--risk);height:26px}
+.src{font-size:10px;color:var(--muted);margin-top:3px;line-height:1.4}
+.src a{color:var(--si)}
+@media (max-width:480px){.ctl{gap:5px 8px;font-size:11px}input[type=range]{width:90px}.read{font-size:11px}h1{font-size:13px}select,button{font-size:11px;padding:4px 6px}}
+.tag{position:fixed;right:8px;bottom:4px;font-size:10px;color:var(--muted);opacity:.8;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1 id="ttl">咽喉點斷鏈：一顆華為手機晶片的路</h1>
+    <select id="mode" aria-label="模式">
+      <option value="hw" selected>圍剿華為（2019–2020）</option>
+      <option value="tw">臺灣封鎖情境（估算）</option>
+    </select>
+  </header>
+  <div class="read" id="rd"></div>
+  <canvas id="cv"></canvas>
+  <div class="ctl" id="cHw">
+    <button data-p="0">2019-05 以前</button>
+    <button data-p="1">2019-05 實體清單</button>
+    <button data-p="2">2020-05 外國直接產品規則</button>
+    <button data-p="3">2020-08 擴大規則</button>
+    <button data-p="4">2020-09 寬限期結束</button>
+  </div>
+  <div class="ctl" id="cTw" hidden>
+    <label>臺灣占比 <select id="share">
+      <option value="0.37">書中 37%（2019 年邏輯晶片）</option>
+      <option value="0.69" selected>69%（2022 年 10 奈米以下先進邏輯）</option>
+      <option value="0.18">18%（2022 年全部晶圓產能）</option>
+    </select></label>
+    <label>斷供月數 T <input id="T" type="range" min="0" max="12" step="1" value="6"><span class="v" id="Tv"></span></label>
+    <label>庫存可撐 b <input id="b" type="range" min="0" max="6" step="0.5" value="2"><span class="v" id="bv"></span></label>
+    <label><input type="checkbox" id="perm"> 產能毀損（書中：重建至少 5 年）</label>
+  </div>
+  <div class="src" id="src"></div>
+</div>
+<div class="tag" id="tag">聯邦公報原文整理・真實計算</div>
+<script>
+(() => {
+"use strict";
+/* 模式一「圍剿華為」：資料型模擬，不是物理模型。各時間點的規則與效果整理自美國聯邦公報原文：
+     2019-05-16 生效 華為列入實體清單 84 FR 22961  https://www.govinfo.gov/content/pkg/FR-2019-05-21/html/2019-10616.htm
+     2020-05-15 生效 外國直接產品規則 85 FR 29849  https://www.govinfo.gov/content/pkg/FR-2020-05-19/html/2020-10856.htm
+                （5/15 前已投產者可於 2020-09-14 前出貨）
+     2020-08-17 生效 擴大規則 85 FR 51596         https://www.govinfo.gov/content/pkg/FR-2020-08-20/html/2020-18213.htm
+   其他：台積電 2019-05 評估仍可出貨（Taipei Times 2019-05-24）；台積電 2020-09-15 起停止出貨給華為（財新 2020-10-16）；
+         Mate 60 Pro 中芯 7 奈米級（TechInsights 2023）。
+   模式二「臺灣封鎖情境」：一年內少掉的新增運算力比例 L = s × max(0, T − b) / 12（情境估算，非預測）。
+     s：書中 37%（作者引 SIA，2019 年臺灣占全球邏輯晶片）；69%、18%：BCG×SIA 2024（2022 年）。
+     產能毀損：書中「重建至少 5 年」，以 5 年 × s 個「年產出」計累積損失（假設重建期間完全沒有替代產能，屬上限）。
+     產值粗估：只在 s＝18%（全部晶圓產能）時 × 2025 年全球半導體銷售 7,956 億美元（SIA 2026），以產能比例代替產值比例，只示意量級。 */
+const $=id=>document.getElementById(id), cv=$("cv"), ctx=cv.getContext("2d");
+const C={line:"#2A323E",text:"#E6EAF0",muted:"#97A1B0",sig:"#4FD1A5",risk:"#E5534B",gold:"#E3B341",cu:"#D08B5B",euv:"#8B6CFF",si:"#8FA6BF",grid:"#1E2530",panel:"#12161D"};
+const font=(s,d,w)=>`${w||""} ${s*d}px "PingFang TC","Noto Sans TC",sans-serif`;
+const COL={ok:C.sig,lic:C.gold,cut:C.risk,hook:C.euv};
+const LAB={ok:"正常",lic:"需許可／受限",cut:"切斷",hook:"美國的槓桿"};
+const NODES=[
+  {id:"eda", t:"EDA 設計軟體", s:"新思、益華、西門子（美國）", alt:"沿用既有授權；中國國產 EDA 起步晚、先進製程支援有限"},
+  {id:"des", t:"晶片設計", s:"華為海思（麒麟）", alt:"設計能力還在，但設計出來的晶片找不到工廠做"},
+  {id:"fab", t:"晶圓代工", s:"台積電（7／5 奈米）", alt:"改找中芯：但中芯也用美國設備，同受規則限制；2023 年 Mate 60 Pro 才出現中芯 7 奈米級晶片"},
+  {id:"eqp", t:"製造設備", s:"應材、科林、科磊（美）、ASML（荷）", alt:"國產設備替代需要多年；EUV 至今只有 ASML 能造"},
+  {id:"mat", t:"材料", s:"光阻、矽晶圓等（日本等）", alt:"這一輪規則沒有直接管材料"},
+  {id:"buy", t:"外購晶片", s:"記憶體、射頻、聯發科／高通處理器", alt:"由供應商逐案申請美國許可"},
+  {id:"phn", t:"高階手機", s:"華為（麒麟晶片手機）", alt:"趕在寬限期前囤貨；書中說華為之後被迫出售部分手機與伺服器業務"}
+];
+const EDGES=[["eda","des"],["des","fab"],["eqp","fab"],["mat","fab"],["fab","phn"],["buy","phn"]];
+const P=[
+  {t:"2019-05 以前", law:"", desc:"整條路暢通：海思用美國 EDA 設計，台積電用美、荷、日設備製造，華為再搭配外購晶片組成手機。2010 年代末，海思已是台積電第二大客戶（書中）。",
+   st:{eda:"ok",des:"ok",fab:"ok",eqp:"ok",mat:"ok",buy:"ok",phn:"ok"},
+   why:{eda:"照常授權與更新",des:"照常",fab:"照常代工",eqp:"照常出貨給晶圓廠",mat:"照常",buy:"照常",phn:"照常"}},
+  {t:"2019-05-16 實體清單", law:'<a href="https://www.govinfo.gov/content/pkg/FR-2019-05-21/html/2019-10616.htm" target="_blank" rel="noopener">84 FR 22961</a>：華為與 68 家海外關係企業列入，多數受出口管理規則管轄的物品要許可。',
+   desc:"美國產品賣給華為要許可，但華為的晶片在臺灣製造，美國成分低於門檻，台積電評估仍可出貨：這一步擋不住最關鍵的那一環。",
+   st:{eda:"lic",des:"ok",fab:"ok",eqp:"ok",mat:"ok",buy:"lic",phn:"ok"},
+   why:{eda:"美國軟體出口給華為要許可：新授權、更新與支援受限",des:"海思仍可用既有工具設計",fab:"台積電評估美國成分低於最低含量門檻，照常出貨（Taipei Times 2019-05-24）",eqp:"設備賣給台積電，不受影響",mat:"不受影響",buy:"美國製晶片要許可；非美國製的照常",phn:"照常出貨"}},
+  {t:"2020-05-15 外國直接產品規則", law:'<a href="https://www.govinfo.gov/content/pkg/FR-2020-05-19/html/2020-10856.htm" target="_blank" rel="noopener">85 FR 29849</a>：華為設計、又由「美國技術建成的工廠」製造的外國產品也要許可；5/15 前已投產者可在 9/14 前出貨。',
+   desc:"關鍵一步：美國不必擁有工廠，只要工廠離不開美國設備。台積電在臺灣替華為做的晶片，從此也要美國點頭。",
+   st:{eda:"lic",des:"lic",fab:"cut",eqp:"hook",mat:"ok",buy:"lic",phn:"lic"},
+   why:{eda:"用美國 EDA 等技術做出的設計，本身也成了受管的「直接產品」",des:"海思的設計檔受管：交給誰製造都要許可",fab:"華為設計＋美國設備製造 → 出貨要許可；只剩寬限期",eqp:"槓桿所在：全球先進晶圓廠都用美國設備",mat:"不受這條規則直接管",buy:"美國製晶片仍要許可；別家的現成晶片還買得到",phn:"趕在 9/14 前囤貨"}},
+  {t:"2020-08-17 擴大規則", law:'<a href="https://www.govinfo.gov/content/pkg/FR-2020-08-20/html/2020-18213.htm" target="_blank" rel="noopener">85 FR 51596</a>：華為是買方、收貨方或最終使用者時，用美國技術製造的外國產品都要許可；再加 38 家關係企業，並取消臨時通用許可。',
+   desc:"堵住「改買別人的晶片」：聯發科處理器、各家記憶體只要用到美國技術製造，賣給華為就要許可。",
+   st:{eda:"lic",des:"lic",fab:"cut",eqp:"hook",mat:"ok",buy:"cut",phn:"lic"},
+   why:{eda:"同上",des:"同上",fab:"同上",eqp:"同上：所有用美國設備的晶圓廠都被涵蓋",mat:"不受直接管制",buy:"現成晶片也要許可：只要華為是交易的一方",phn:"自研與外購兩條路同時被卡"}},
+  {t:"2020-09-15 寬限期結束", law:'台積電 9/15 起停止出貨給華為（<a href="https://www.caixinglobal.com/2020-10-16/tsmc-wont-sell-chips-to-huawei-in-fourth-quarter-101615215.html" target="_blank" rel="noopener">財新 2020-10-16</a>）；後續：<a href="https://www.techinsights.com/blog/techinsights-finds-smic-7nm-n2-huawei-mate-60-pro" target="_blank" rel="noopener">2023 Mate 60 Pro 中芯 7 奈米級</a>。',
+   desc:"寬限期一過，高階手機晶片只剩庫存。直到 2023 年 Mate 60 Pro，華為才重新拿出中芯製造的 7 奈米級晶片；但量與成本仍是問題。",
+   st:{eda:"lic",des:"lic",fab:"cut",eqp:"hook",mat:"ok",buy:"cut",phn:"cut"},
+   why:{eda:"同上",des:"同上",fab:"台積電停止出貨給華為",eqp:"同上",mat:"不受直接管制",buy:"逐案許可",phn:"高階晶片斷貨，只剩庫存"}}
+];
+let mode="hw", per=2, sel="fab", boxes=[];
+function fit(){ const r=cv.getBoundingClientRect(), d=Math.min(devicePixelRatio||1,2); cv.width=Math.round(r.width*d); cv.height=Math.round(r.height*d); return d; }
+function rr(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+function wrap(text,x,y,maxW,lh){ let line="", yy=y; for(const ch of text){ if(ctx.measureText(line+ch).width>maxW && line){ ctx.fillText(line,x,yy); line=ch; yy+=lh; } else line+=ch; } if(line) ctx.fillText(line,x,yy); return yy+lh; }
+function arrow(x1,y1,x2,y2,c,d){ ctx.strokeStyle=c; ctx.fillStyle=c; ctx.lineWidth=1.6*d; ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  const a=Math.atan2(y2-y1,x2-x1), s=7*d; ctx.beginPath(); ctx.moveTo(x2,y2); ctx.lineTo(x2-s*Math.cos(a-0.4),y2-s*Math.sin(a-0.4)); ctx.lineTo(x2-s*Math.cos(a+0.4),y2-s*Math.sin(a+0.4)); ctx.closePath(); ctx.fill(); }
+function drawHw(d,W,H){
+  const p=P[per], narrow=W/d<560;
+  // 版面：寬螢幕 3 欄（輸入｜代工｜成品），窄螢幕直排
+  const pos={};
+  if(!narrow){
+    const cw=(W-40*d)/3, bh=Math.min(64*d,(H-30*d)/4.4), gx=20*d;
+    const colX=i=>gx+i*cw+8*d, bw=cw-16*d;
+    pos.eda={x:colX(0),y:14*d,w:bw,h:bh}; pos.eqp={x:colX(0),y:14*d+1.25*bh,w:bw,h:bh}; pos.mat={x:colX(0),y:14*d+2.5*bh,w:bw,h:bh};
+    pos.des={x:colX(1),y:14*d,w:bw,h:bh}; pos.fab={x:colX(1),y:14*d+1.25*bh,w:bw,h:bh};
+    pos.buy={x:colX(2),y:14*d,w:bw,h:bh}; pos.phn={x:colX(2),y:14*d+1.25*bh,w:bw,h:bh};
+  } else {
+    const bw=(W-30*d)/2, bh=Math.min(56*d,(H-20*d)/4.6), g=10*d;
+    const L=10*d, Rr=20*d+bw;
+    pos.eda={x:L,y:g,w:bw,h:bh}; pos.des={x:Rr,y:g,w:bw,h:bh};
+    pos.eqp={x:L,y:g+1.2*bh,w:bw,h:bh}; pos.fab={x:Rr,y:g+1.2*bh,w:bw,h:bh};
+    pos.mat={x:L,y:g+2.4*bh,w:bw,h:bh}; pos.phn={x:Rr,y:g+2.4*bh,w:bw,h:bh};
+    pos.buy={x:L,y:g+3.6*bh,w:bw,h:bh};
+  }
+  boxes=[];
+  // 連線
+  for(const [a,b] of EDGES){ const A=pos[a], B=pos[b]; const sa=p.st[a], sb=p.st[b];
+    const c=(sa==="cut"||sb==="cut")?C.risk:(sa==="lic"||sb==="lic")?C.gold:C.line;
+    let x1,y1,x2,y2;
+    if(Math.abs(A.y-B.y)<2){ x1=A.x+A.w; y1=A.y+A.h/2; x2=B.x; y2=B.y+B.h/2; if(x1>x2){x1=A.x; x2=B.x+B.w;} }
+    else if(Math.abs(A.x-B.x)<2){ x1=A.x+A.w/2; y1=A.y+(B.y>A.y?A.h:0); x2=B.x+B.w/2; y2=B.y+(B.y>A.y?0:B.h); }
+    else { x1=A.x+(B.x>A.x?A.w:0); y1=A.y+A.h/2; x2=B.x+(B.x>A.x?0:B.w); y2=B.y+B.h/2; }
+    arrow(x1,y1,x2,y2,c,d);
+  }
+  // 節點
+  for(const n of NODES){ const b=pos[n.id], st=p.st[n.id], c=COL[st];
+    rr(b.x,b.y,b.w,b.h,8*d); ctx.fillStyle="#0F1319"; ctx.fill(); ctx.lineWidth=(n.id===sel?2.6:1.4)*d; ctx.strokeStyle=c; ctx.stroke();
+    ctx.fillStyle=c; ctx.fillRect(b.x+1*d,b.y+8*d,4*d,b.h-16*d);
+    ctx.textAlign="left"; ctx.textBaseline="top";
+    ctx.fillStyle=C.text; ctx.font=font(narrow?11:12.5,d,"600"); ctx.fillText(n.t, b.x+11*d, b.y+7*d);
+    ctx.fillStyle=c; ctx.font=font(narrow?9.5:10.5,d); ctx.textAlign="right"; ctx.fillText(LAB[st], b.x+b.w-7*d, b.y+8*d);
+    ctx.textAlign="left"; ctx.fillStyle=C.muted; ctx.font=font(narrow?9.5:10.5,d); wrap(n.s, b.x+11*d, b.y+(narrow?23:26)*d, b.w-18*d, (narrow?12:14)*d);
+    boxes.push({id:n.id,...b});
+  }
+  // 圖例
+  ctx.font=font(10,d); ctx.textBaseline="middle"; let lx=10*d; const ly=H-10*d;
+  for(const k of ["ok","lic","cut","hook"]){ ctx.fillStyle=COL[k]; ctx.fillRect(lx,ly-4*d,10*d,8*d); ctx.fillStyle=C.muted; ctx.textAlign="left"; ctx.fillText(LAB[k],lx+14*d,ly); lx+=ctx.measureText(LAB[k]).width+30*d; }
+  const n=NODES.find(x=>x.id===sel);
+  $("rd").innerHTML=`<b>${p.t}</b>｜${p.desc}<br>點選的環節：<u>${n.t}</u>｜${p.why[sel]}${p.st[sel]==="ok"?"":`｜替代方案：${n.alt}`}`;
+  $("src").innerHTML=(p.law?"依據："+p.law+"　":"")+"點方塊看各環節細節。綠＝正常、黃＝需許可、紅＝切斷、紫＝美國用來施力的槓桿。";
+}
+function drawTw(d,W,H){
+  const s=+$("share").value, T=+$("T").value, b=+$("b").value, perm=$("perm").checked;
+  $("Tv").textContent=T+" 個月"; $("bv").textContent=b+" 個月";
+  const L = perm ? s : s*Math.max(0,T-b)/12;
+  const narrow=W/d<520;
+  // 左：12 個月供給條；右：一年新增運算力圓環
+  const padX=14*d, top=34*d;
+  const barW = narrow ? W-2*padX : (W-2*padX)*0.58, barH=Math.min(150*d, H*0.42);
+  ctx.textAlign="left"; ctx.textBaseline="top"; ctx.fillStyle=C.muted; ctx.font=font(11,d);
+  ctx.fillText(perm?"每月全球供給（產能毀損：整年都少 s）":"每月全球供給（斷供 T 個月，前 b 個月靠庫存撐住）", padX, 10*d);
+  const mw=barW/12;
+  for(let m=0;m<12;m++){
+    const lostPart = perm ? 1 : Math.max(0, Math.min(m+1,T) - Math.max(m,b));  // 這個月落在 [b, T] 的部分
+    const x=padX+m*mw, y0=top+barH;
+    const frac = 1 - s*lostPart;
+    ctx.fillStyle="#1A202A"; ctx.fillRect(x+2*d, top, mw-4*d, barH);
+    ctx.fillStyle = C.sig; ctx.globalAlpha=0.85; ctx.fillRect(x+2*d, y0-barH*frac, mw-4*d, barH*frac);
+    if(frac<1){ ctx.fillStyle=C.risk; ctx.fillRect(x+2*d, y0-barH, mw-4*d, barH*(1-frac)); }
+    ctx.globalAlpha=1;
+    if(!perm && m<T && m<b){ ctx.fillStyle="rgba(227,179,65,.35)"; ctx.fillRect(x+2*d, top, mw-4*d, 5*d); }
+    ctx.fillStyle=C.muted; ctx.font=font(9.5,d); ctx.textAlign="center"; ctx.fillText(m+1, x+mw/2, y0+4*d);
+  }
+  ctx.textAlign="left"; ctx.fillStyle=C.muted; ctx.font=font(10,d);
+  ctx.fillText("月份　綠＝正常供給　紅＝少掉臺灣那一份　黃條＝庫存撐住", padX, top+barH+18*d);
+  // 圓環
+  const cx = narrow ? W/2 : padX+barW+(W-padX-barW-padX)/2, cy = narrow ? top+barH+40*d+Math.min(70*d,(H-top-barH-60*d)/2) : top+barH/2+10*d;
+  const R0 = narrow ? Math.max(24*d,Math.min(60*d,(H-top-barH-70*d)/2)) : Math.min(78*d,(W-padX-barW-2*padX)/2.6, barH/1.6);
+  ctx.lineWidth=R0*0.38; ctx.strokeStyle=C.sig; ctx.beginPath(); ctx.arc(cx,cy,R0,-Math.PI/2,-Math.PI/2+2*Math.PI); ctx.stroke();
+  ctx.strokeStyle=C.risk; ctx.beginPath(); ctx.arc(cx,cy,R0,-Math.PI/2,-Math.PI/2+2*Math.PI*Math.min(1,L)); ctx.stroke();
+  ctx.fillStyle=C.text; ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.font=font(narrow?15:18,d,"700"); ctx.fillText((L*100).toFixed(1)+"%", cx, cy-4*d);
+  ctx.font=font(9.5,d); ctx.fillStyle=C.muted; ctx.fillText("一年少掉", cx, cy+14*d);
+  const val = 795.6*L;
+  const valTxt = s===0.18 ? `粗估產值 ≈ <b>${val.toFixed(0)}</b> 十億美元（2025 年全球半導體銷售 795.6 十億美元 × L；以產能比例代替產值，只示意量級）` : `產值粗估只在「全部晶圓產能 18%」下顯示：先進邏輯的占比不能直接乘上整個產業的銷售額`;
+  const five = s*5;
+  $("rd").innerHTML = perm
+    ? `產能毀損：每年少 <i>${(s*100).toFixed(0)}%</i>，重建至少 5 年 → 累積約 <b>${five.toFixed(2)}</b> 個「全球年產出」的這一類晶片（假設期間無替代，屬上限）。${valTxt}`
+    : `L = ${(s*100).toFixed(0)}% × max(0, ${T} − ${b}) / 12 = <b>${(L*100).toFixed(1)}%</b>｜書中情境（37%、全年、無庫存）＝37%｜${valTxt}`;
+  $("src").innerHTML='情境估算，不是預測。占比來源：書中 37%（作者引 SIA，2019）；69%、18%：<a href="https://www.semiconductors.org/wp-content/uploads/2024/05/Report_Emerging-Resilience-in-the-Semiconductor-Supply-Chain.pdf" target="_blank" rel="noopener">BCG×SIA 2024（2022 年資料）</a>；全球銷售：<a href="https://www.semiconductors.org/wp-content/uploads/2026/07/SIA_2026_State-of-the-Semiconductor-Industry.pdf" target="_blank" rel="noopener">SIA 2026</a>。真實情況還要看替代產能、需求下降與連鎖停工。';
+}
+function draw(){
+  const d=fit(), W=cv.width, H=cv.height;
+  ctx.fillStyle=C.panel; ctx.fillRect(0,0,W,H);
+  if(mode==="hw") drawHw(d,W,H); else drawTw(d,W,H);
+}
+$("mode").addEventListener("change",e=>{ mode=e.target.value; $("cHw").hidden=mode!=="hw"; $("cTw").hidden=mode!=="tw";
+  $("ttl").textContent = mode==="hw" ? "咽喉點斷鏈：一顆華為手機晶片的路" : "臺灣封鎖情境：世界少掉多少新增運算力？";
+  $("tag").textContent = mode==="hw" ? "聯邦公報原文整理・真實計算" : "情境估算・真實計算"; draw(); });
+document.querySelectorAll("#cHw button").forEach(bt=>bt.addEventListener("click",()=>{ per=+bt.dataset.p; document.querySelectorAll("#cHw button").forEach(x=>x.classList.toggle("on",x===bt)); draw(); }));
+document.querySelector('#cHw button[data-p="2"]').classList.add("on");
+cv.addEventListener("click",e=>{ if(mode!=="hw") return; const r=cv.getBoundingClientRect(), d=cv.width/r.width, x=(e.clientX-r.left)*d, y=(e.clientY-r.top)*d;
+  const hit=boxes.find(b=>x>=b.x&&x<=b.x+b.w&&y>=b.y&&y<=b.y+b.h); if(hit){ sel=hit.id; draw(); } });
+["share","T","b","perm"].forEach(id=>$(id).addEventListener("input",draw));
+$("share").addEventListener("change",draw);
+addEventListener("resize",draw); draw();
+})();
+</script>
+</body>
+</html>

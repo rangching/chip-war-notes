@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>光刻解析度：光能畫多細</title>
+<style>
+:root{--bg:#0B0E13;--panel:#12161D;--line:#2A323E;--text:#E6EAF0;--muted:#97A1B0;
+--si:#8FA6BF;--euv:#8B6CFF;--sig:#4FD1A5;--risk:#E5534B;--gold:#E3B341;--cu:#D08B5B}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+font-family:"PingFang TC","Noto Sans TC",system-ui,sans-serif;overflow:hidden;-webkit-tap-highlight-color:transparent}
+#app{display:flex;flex-direction:column;height:100%;padding:8px 10px 6px}
+header{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+h1{font-size:14px;margin:0;font-weight:600}
+.read{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--muted);min-height:16px}
+.read b{color:var(--gold);font-weight:600}
+#cv{flex:1;min-height:0;width:100%;display:block;margin:6px 0;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
+.ctl{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;font-size:12px}
+select,button{font:inherit;font-size:12px;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 8px;min-height:30px}
+label{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}
+label span.v{font-family:ui-monospace,Menlo,monospace;color:var(--text);min-width:52px;display:inline-block}
+input[type=range]{width:120px;accent-color:var(--euv);height:26px}
+@media (max-width:480px){.ctl{gap:5px 8px;font-size:11px}input[type=range]{width:90px}.read{font-size:11px}h1{font-size:13px}}
+.tag{position:fixed;right:8px;bottom:4px;font-size:10px;color:var(--muted);opacity:.8;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>光刻解析度：光能畫多細？</h1>
+    <select id="src" aria-label="光源與鏡頭">
+      <option value="436,0.45">g-line 汞燈 436 nm・NA 0.45（1980 年代）</option>
+      <option value="365,0.6">i-line 汞燈 365 nm・NA 0.60（1990 年代）</option>
+      <option value="248,0.8">KrF 準分子雷射 248 nm・NA 0.80</option>
+      <option value="193,0.93">ArF 乾式 193 nm・NA 0.93</option>
+      <option value="193,1.35" selected>ArF 浸潤式 193 nm・NA 1.35</option>
+      <option value="13.5,0.33">EUV 13.5 nm・NA 0.33</option>
+      <option value="13.5,0.55">High-NA EUV 13.5 nm・NA 0.55</option>
+    </select>
+  </header>
+  <div class="read" id="rd"></div>
+  <canvas id="cv"></canvas>
+  <div class="ctl">
+    <label>線寬週期 pitch <input id="p" type="range" min="10" max="900" step="1" value="160"><span class="v" id="pv"></span></label>
+    <label>照明 <select id="ill"><option value="0">正入射（同調）</option><option value="1" selected>偶極離軸照明</option></select></label>
+  </div>
+</div>
+<div class="tag">Abbe 成像・真實計算</div>
+<script>
+(() => {
+"use strict";
+/* 模型：50% 工作週期的線條光柵（週期 p），繞射級次 m 的方向 sinθ = mλ/p。
+   鏡頭只收得進 |sinθ| ≤ NA 的級次。影像強度 I(x) = |Σ c_m e^{i2πmx/p}|²，c_0 = 1/2，c_m = sin(πm/2)/(πm)。
+   偶極離軸照明：光從 ±s 方向斜射（s = 0.9·NA），每一極各自成像後強度相加（部分同調的簡化）。
+   解析度極限：同調 p_min = λ/NA；離軸 p_min ≈ λ/(1.9·NA)（k1 = p/2·NA/λ 的理論下限 0.25）。 */
+const $=id=>document.getElementById(id), cv=$("cv"), ctx=cv.getContext("2d");
+const C={line:"#2A323E",text:"#E6EAF0",muted:"#97A1B0",si:"#8FA6BF",euv:"#8B6CFF",sig:"#4FD1A5",risk:"#E5534B",gold:"#E3B341",cu:"#D08B5B",grid:"#1E2530"};
+let lam=193, NA=1.35;
+function coef(m){ return m===0?0.5:Math.sin(Math.PI*m/2)/(Math.PI*m); }
+function image(p, ill){
+  const poles = ill ? [0.9*NA, -0.9*NA] : [0];
+  const N=400, I=new Float64Array(N); const used=new Set();
+  for(const s of poles){
+    const ms=[]; for(let m=-60;m<=60;m++){ if(Math.abs(m*lam/p + s) <= NA + 1e-12) ms.push(m); }
+    ms.forEach(m=>used.add(m));
+    for(let k=0;k<N;k++){
+      const x = 2*p*k/N; let re=0, im=0;
+      for(const m of ms){ const a=coef(m), ph=2*Math.PI*m*x/p; re+=a*Math.cos(ph); im+=a*Math.sin(ph); }
+      I[k]+= (re*re+im*im)/poles.length;
+    }
+  }
+  return {I, used:[...used].sort((a,b)=>a-b)};
+}
+function fit(){ const r=cv.getBoundingClientRect(), d=Math.min(devicePixelRatio||1,2); cv.width=Math.round(r.width*d); cv.height=Math.round(r.height*d); return d; }
+function draw(){
+  const d=fit(), W=cv.width, H=cv.height, p=+$("p").value, ill=+$("ill").value;
+  $("pv").textContent = p+" nm";
+  const {I, used} = image(p, ill);
+  const pmin = ill ? lam/(1.9*NA) : lam/NA;
+  const ok = used.some(m=>m!==0) ;
+  const k1 = (p/2)*NA/lam;
+  ctx.fillStyle="#12161D"; ctx.fillRect(0,0,W,H);
+  ctx.strokeStyle=C.grid; ctx.lineWidth=d;
+  for(let x=0;x<W;x+=24*d){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
+  for(let y=0;y<H;y+=24*d){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+  const pad=14*d, bandH=(H-4*pad)/3, X0=pad, Wd=W-2*pad;
+  const font=s=>`${s*d}px "PingFang TC","Noto Sans TC",sans-serif`;
+  // 1) 光罩
+  let y=pad;
+  ctx.fillStyle=C.muted; ctx.font=font(12); ctx.fillText("光罩上的圖案（兩個週期）", X0, y+12*d);
+  const yb=y+18*d, hb=bandH-24*d;
+  for(let k=0;k<4;k++){ ctx.fillStyle = k%2===0 ? C.cu : "#0B0E13"; ctx.fillRect(X0+Wd*k/4, yb, Wd/4, hb); }
+  // 2) 空間影像強度
+  y+=bandH+pad;
+  ctx.fillStyle=C.muted; ctx.fillText("晶圓上的光強度（鏡頭只收得進 |sinθ| ≤ NA 的繞射光）", X0, y+12*d);
+  const ya=y+18*d, ha=bandH-24*d, Imax=Math.max(1e-9,...I), th=0.5*Imax;
+  ctx.strokeStyle=C.line; ctx.beginPath(); ctx.moveTo(X0,ya+ha*(1-th/Imax)); ctx.lineTo(X0+Wd,ya+ha*(1-th/Imax)); ctx.stroke();
+  ctx.fillStyle=C.muted; ctx.fillText("光阻門檻", X0+Wd-56*d, ya+ha*(1-th/Imax)-4*d);
+  ctx.strokeStyle=C.euv; ctx.lineWidth=2*d; ctx.beginPath();
+  for(let k=0;k<I.length;k++){ const xx=X0+Wd*k/(I.length-1), yy=ya+ha*(1-I[k]/Math.max(Imax,0.3)); k?ctx.lineTo(xx,yy):ctx.moveTo(xx,yy); }
+  ctx.stroke();
+  // 3) 顯影後的光阻
+  y+=bandH+pad;
+  const contrast = (Math.max(...I)-Math.min(...I))/(Math.max(...I)+Math.min(...I)+1e-12);
+  const printable = ok && contrast>0.25;
+  ctx.fillStyle=C.muted; ctx.fillText(printable?"顯影後的線條：印得出來":"顯影後的線條：糊成一片，印不出來", X0, y+12*d);
+  const yr=y+18*d, hr=bandH-24*d;
+  if(printable){
+    for(let k=0;k<I.length;k++){ if(I[k]>=th){ ctx.fillStyle=C.sig; ctx.fillRect(X0+Wd*k/I.length, yr, Wd/I.length+1, hr); } }
+  } else { ctx.fillStyle="rgba(229,83,75,.25)"; ctx.fillRect(X0,yr,Wd,hr); }
+  $("rd").innerHTML = `λ = ${lam} nm，NA = ${NA}　｜　最小週期 ≈ <b>${pmin.toFixed(1)} nm</b>（半週期 ${(pmin/2).toFixed(1)} nm）　｜　k₁ = ${k1.toFixed(2)}　｜　收進的繞射級次 ${used.join(", ")}`;
+}
+$("src").addEventListener("change",e=>{ [lam,NA]=e.target.value.split(",").map(Number); draw(); });
+["p","ill"].forEach(id=>$(id).addEventListener("input",draw));
+addEventListener("resize",draw); draw();
+})();
+</script>
+</body>
+</html>

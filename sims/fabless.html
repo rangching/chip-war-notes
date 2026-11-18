@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>設計和製造分家的算術</title>
+<style>
+:root{--bg:#0B0E13;--panel:#12161D;--line:#2A323E;--text:#E6EAF0;--muted:#97A1B0;
+--si:#8FA6BF;--euv:#8B6CFF;--sig:#4FD1A5;--risk:#E5534B;--gold:#E3B341;--cu:#D08B5B}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+font-family:"PingFang TC","Noto Sans TC",system-ui,sans-serif;overflow:hidden;-webkit-tap-highlight-color:transparent}
+#app{display:flex;flex-direction:column;height:100%;padding:8px 10px 6px}
+header{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+h1{font-size:14px;margin:0;font-weight:600}
+.read{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--muted);min-height:48px;line-height:1.45}
+.read b{color:var(--gold);font-weight:600}.read i{color:var(--sig);font-style:normal}.read u{color:var(--cu);text-decoration:none}
+#cv{flex:1;min-height:170px;width:100%;display:block;margin:6px 0;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
+.ctl{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:2px 14px;font-size:12px;max-height:38vh;overflow-y:auto}
+button{font:inherit;font-size:12px;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer;min-height:30px}
+label{display:flex;align-items:center;gap:6px;color:var(--muted);justify-content:space-between}
+label span.v{font-family:ui-monospace,Menlo,monospace;color:var(--text);min-width:78px;display:inline-block;text-align:right}
+input[type=range]{flex:1;min-width:80px;accent-color:var(--sig);height:26px}
+.src{font-size:10.5px;color:var(--muted);margin-top:3px;line-height:1.35}
+.src a{color:var(--si)}
+@media (max-width:480px){.ctl{font-size:11px;grid-template-columns:1fr}.read{font-size:11px}h1{font-size:13px}}
+.tag{position:fixed;right:8px;bottom:4px;font-size:10px;color:var(--muted);opacity:.8;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="app">
+  <header><h1>自建晶圓廠 vs 委外代工：每顆晶片多少錢？</h1><button id="reset">回到預設</button></header>
+  <div class="read" id="rd"></div>
+  <canvas id="cv"></canvas>
+  <div class="ctl">
+    <label>年出貨量 <input id="q" type="range" min="0" max="1000" step="1"><span class="v" id="qv"></span></label>
+    <label>晶片售價 <input id="p" type="range" min="5" max="500" step="1"><span class="v" id="pv"></span></label>
+    <label>設計費 NRE <input id="nre" type="range" min="0.25" max="20" step="0.25"><span class="v" id="nrev"></span></label>
+    <label>晶粒面積 <input id="a" type="range" min="20" max="800" step="5"><span class="v" id="av"></span></label>
+    <label>良率 <input id="y" type="range" min="30" max="98" step="1"><span class="v" id="yv"></span></label>
+    <label>建廠成本 <input id="f" type="range" min="1" max="400" step="1"><span class="v" id="fv"></span></label>
+    <label>折舊年數 <input id="n" type="range" min="3" max="10" step="1"><span class="v" id="nv"></span></label>
+    <label>每座每月產能 <input id="w" type="range" min="10000" max="150000" step="5000"><span class="v" id="wv"></span></label>
+    <label>每片變動成本 <input id="vc" type="range" min="1000" max="15000" step="250"><span class="v" id="vcv"></span></label>
+    <label>自建：製程研發／年 <input id="rd2" type="range" min="0" max="100" step="1"><span class="v" id="rd2v"></span></label>
+    <label>代工毛利率 <input id="gm" type="range" min="10" max="70" step="1"><span class="v" id="gmv"></span></label>
+  </div>
+  <div class="src">來源・年份：建廠成本預設 280 億美元＝IBS 估計 2 奈米、月產 5 萬片晶圓廠（2023，<a href="https://www.tomshardware.com/tech-industry/firm-predicts-it-will-cost-dollar28-billion-to-build-a-2nm-fab-and-dollar30000-per-wafer-a-50-percent-increase-in-chipmaking-costs-as-complexity-rises" target="_blank" rel="noopener">Tom's Hardware</a>）；設計費預設 7.25 億美元＝IBS 估計大型 2 奈米晶片（約 2023，<a href="https://www.tomshardware.com/news/firm-estimates-a-2nm-chip-now-costs-dollar725-million-to-design" target="_blank" rel="noopener">Tom's Hardware</a>）。折舊 5 年、良率、變動成本、製程研發、代工毛利率、售價、出貨量、代工稼動率 90% 都是教學假設值。</div>
+</div>
+<div class="tag">成本模型・真實計算</div>
+<script>
+(() => {
+"use strict";
+/* 一年為單位的成本模型（與 calc_u09.py 相同）：
+   每片毛晶粒 DPW = floor(π·150²/A − π·300/√(2A))（300 mm 晶圓常用近似式），好晶粒 g = DPW·Y。
+   年出貨 Q 顆 → 需要晶圓 w = Q/g 片。
+   自建晶圓廠：座數 k = max(1, ceil(w/(12W)))；年成本 = NRE + 製程研發 RD + k·F/N + v·w（產能用不完也得付折舊）。
+   委外代工：代工廠把一座廠的折舊攤給很多客戶，稼動率 u = 90%；每片成本 = F/N/(12·W·u) + v，
+             報價 P_w = 每片成本/(1 − 毛利率)；年成本 = NRE + P_w·w。（代工廠的研發與營運費用由毛利支應。）
+   損益兩平：售價·Q = 年成本。自建的成本有「整座廠」的階梯，所以用數值掃描找第一個損益兩平點。
+   預設值來源：建廠 280 億美元（IBS 2023，2 奈米、月產 5 萬片）；設計費 7.25 億美元（IBS，約 2023）。其餘為教學假設。 */
+const $=id=>document.getElementById(id), cv=$("cv"), ctx=cv.getContext("2d");
+const C={line:"#2A323E",text:"#E6EAF0",muted:"#97A1B0",si:"#8FA6BF",sig:"#4FD1A5",risk:"#E5534B",gold:"#E3B341",cu:"#D08B5B",grid:"#1E2530"};
+const DEF={q:750,p:80,nre:7.25,a:100,y:80,f:280,n:5,w:50000,vc:4000,rd2:40,gm:50};
+const U=0.9, QMIN=1e5, QMAX=1e9;
+const s2q=v=>QMIN*Math.pow(QMAX/QMIN,v/1000);
+function setDef(){ for(const k in DEF) $(k).value=DEF[k]; }
+function params(){
+  return {Q:s2q(+$("q").value), price:+$("p").value, NRE:+$("nre").value*1e8, A:+$("a").value, Y:+$("y").value/100,
+          F:+$("f").value*1e8, N:+$("n").value, W:+$("w").value, v:+$("vc").value, RD:+$("rd2").value*1e8, gm:+$("gm").value/100};
+}
+const dpw=A=>Math.floor(Math.PI*150*150/A - Math.PI*300/Math.sqrt(2*A));
+function model(P){
+  const g=Math.max(1e-9,dpw(P.A)*P.Y);
+  const Pw=(P.F/P.N/(12*P.W*U)+P.v)/(1-P.gm);
+  const own=Q=>{ const w=Q/g, k=Math.max(1,Math.ceil(w/(12*P.W))); return {c:P.NRE+P.RD+k*P.F/P.N+P.v*w, k, w}; };
+  const fdy=Q=>P.NRE+Pw*Q/g;
+  return {g,Pw,own,fdy};
+}
+function scan(fn){ // 第一個讓 fn(Q) 為真的出貨量（對數掃描）
+  for(let i=0;i<=4000;i++){ const Q=QMIN*Math.pow(QMAX/QMIN,i/4000); if(fn(Q)) return Q; } return null; }
+const fq=Q=>Q>=1e8?(Q/1e8).toFixed(2)+" 億顆":Q>=1e4?(Q/1e4).toFixed(0)+" 萬顆":Q.toFixed(0)+" 顆";
+const fu=x=>x>=1e8?(x/1e8).toFixed(x>=1e10?0:1)+" 億美元":Math.round(x).toLocaleString()+" 美元";
+function fit(){ const r=cv.getBoundingClientRect(), d=Math.min(devicePixelRatio||1,2); cv.width=Math.round(r.width*d); cv.height=Math.round(r.height*d); return d; }
+function draw(){
+  const P=params(), M=model(P);
+  $("qv").textContent=fq(P.Q); $("pv").textContent="$"+P.price; $("nrev").textContent=(P.NRE/1e8).toFixed(2)+" 億美元";
+  $("av").textContent=P.A+" mm²"; $("yv").textContent=Math.round(P.Y*100)+"%"; $("fv").textContent=(P.F/1e8)+" 億美元";
+  $("nv").textContent=P.N+" 年"; $("wv").textContent=P.W.toLocaleString()+" 片"; $("vcv").textContent="$"+P.v.toLocaleString();
+  $("rd2v").textContent=(P.RD/1e8)+" 億美元"; $("gmv").textContent=Math.round(P.gm*100)+"%";
+  const o=M.own(P.Q), cOwn=o.c/P.Q, cF=M.fdy(P.Q)/P.Q;
+  const beF=scan(Q=>P.price*Q>=M.fdy(Q)), beO=scan(Q=>P.price*Q>=M.own(Q).c), cross=scan(Q=>M.own(Q).c<=M.fdy(Q));
+  // ---- 圖：每顆成本 vs 年出貨量（雙對數）
+  const d=fit(), W=cv.width, H=cv.height, font=s=>`${s*d}px "PingFang TC","Noto Sans TC",sans-serif`;
+  ctx.fillStyle="#12161D"; ctx.fillRect(0,0,W,H);
+  const gx=46*d, gy=14*d, gw=W-gx-12*d, gh=H-gy-30*d, YMIN=1, YMAX=1e5;
+  const X=Q=>gx+gw*Math.log(Q/QMIN)/Math.log(QMAX/QMIN), Yc=c=>gy+gh*(1-Math.log10(Math.min(Math.max(c,YMIN),YMAX))/Math.log10(YMAX));
+  ctx.font=font(10); ctx.lineWidth=d;
+  for(let e=0;e<=5;e++){ const y=Yc(Math.pow(10,e)); ctx.strokeStyle=C.grid; ctx.beginPath(); ctx.moveTo(gx,y); ctx.lineTo(gx+gw,y); ctx.stroke(); ctx.fillStyle=C.muted; ctx.fillText("$"+Math.pow(10,e).toLocaleString(), 4*d, y+3*d); }
+  for(const [q,t] of [[1e5,"10 萬"],[1e6,"100 萬"],[1e7,"1,000 萬"],[1e8,"1 億"],[1e9,"10 億"]]){ const x=X(q); ctx.strokeStyle=C.grid; ctx.beginPath(); ctx.moveTo(x,gy); ctx.lineTo(x,gy+gh); ctx.stroke(); ctx.fillStyle=C.muted; ctx.fillText(t, Math.min(x-10*d,gx+gw-30*d), gy+gh+13*d); }
+  ctx.fillText("年出貨量（顆）→", gx+gw-90*d, gy+gh+25*d);
+  // 售價線
+  ctx.strokeStyle=C.gold; ctx.setLineDash([6*d,4*d]); ctx.lineWidth=1.4*d; ctx.beginPath(); ctx.moveTo(gx,Yc(P.price)); ctx.lineTo(gx+gw,Yc(P.price)); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle=C.gold; ctx.fillText("售價 $"+P.price, gx+4*d, Yc(P.price)-4*d);
+  const curve=(fn,col)=>{ ctx.strokeStyle=col; ctx.lineWidth=2.2*d; ctx.beginPath(); for(let i=0;i<=400;i++){ const Q=QMIN*Math.pow(QMAX/QMIN,i/400), y=Yc(fn(Q)/Q); i?ctx.lineTo(X(Q),y):ctx.moveTo(X(Q),y); } ctx.stroke(); };
+  curve(Q=>M.own(Q).c, C.cu); curve(Q=>M.fdy(Q), C.sig);
+  ctx.font=font(11); ctx.fillStyle=C.cu; ctx.fillText("自建晶圓廠", gx+gw-78*d, Yc(M.own(QMAX*0.6).c/(QMAX*0.6))-8*d);
+  ctx.fillStyle=C.sig; ctx.fillText("委外代工", gx+gw-64*d, Yc(M.fdy(QMAX*0.6)/(QMAX*0.6))+16*d);
+  const dot=(Q,c,col,r)=>{ ctx.fillStyle=col; ctx.beginPath(); ctx.arc(X(Q),Yc(c),r*d,0,7); ctx.fill(); };
+  if(beF) dot(beF,P.price,C.sig,4); if(beO) dot(beO,P.price,C.cu,4);
+  ctx.strokeStyle=C.text; ctx.lineWidth=d; ctx.beginPath(); ctx.moveTo(X(P.Q),gy); ctx.lineTo(X(P.Q),gy+gh); ctx.stroke();
+  dot(P.Q,cOwn,C.cu,5); dot(P.Q,cF,C.sig,5);
+  // ---- 讀數
+  const util=o.w/(12*P.W*o.k);
+  const pr=(c)=>{ const v=(P.price-c)*P.Q; return (v>=0?"<i>賺 ":"<u>賠 ")+fu(Math.abs(v))+"</"+(v>=0?"i":"u")+">"; };
+  $("rd").innerHTML=`每片好晶粒 ${M.g.toFixed(0)} 顆，需要 ${Math.round(o.w).toLocaleString()} 片晶圓／年　｜　代工報價 <b>$${Math.round(M.Pw).toLocaleString()}</b>／片<br>`+
+   `每顆成本：自建 <b>$${cOwn.toFixed(2)}</b>（${o.k} 座廠、產能只用到 ${(util*100).toFixed(0)}%）${pr(cOwn)}／年；代工 <b>$${cF.toFixed(2)}</b> ${pr(cF)}／年<br>`+
+   `損益兩平：代工 ${beF?fq(beF):"售價低於晶圓成本，賣越多賠越多"}；自建 ${beO?fq(beO):"10 億顆內做不到"}　｜　自建開始比代工便宜：${cross?fq(cross):"10 億顆內不會"}`;
+}
+document.querySelectorAll("input").forEach(el=>el.addEventListener("input",draw));
+$("reset").addEventListener("click",()=>{ setDef(); draw(); });
+addEventListener("resize",draw); setDef(); draw();
+})();
+</script>
+</body>
+</html>

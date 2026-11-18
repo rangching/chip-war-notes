@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>供應鏈咽喉點</title>
+<style>
+:root{--bg:#0B0E13;--panel:#12161D;--line:#2A323E;--text:#E6EAF0;--muted:#97A1B0;
+--si:#8FA6BF;--euv:#8B6CFF;--sig:#4FD1A5;--risk:#E5534B;--gold:#E3B341;--cu:#D08B5B}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+font-family:"PingFang TC","Noto Sans TC",system-ui,sans-serif;overflow:hidden;-webkit-tap-highlight-color:transparent}
+#app{display:flex;flex-direction:column;height:100%;padding:8px 10px 6px}
+header{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+h1{font-size:14px;margin:0;font-weight:600}
+.read{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--muted);min-height:32px;line-height:1.4;margin-top:4px}
+.read b{color:var(--gold);font-weight:600}.read i{color:var(--sig);font-style:normal}.read u{color:var(--risk);text-decoration:none;font-weight:600}
+#cv{flex:1;min-height:0;width:100%;display:block;margin:6px 0;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
+.ctl{display:flex;flex-wrap:wrap;gap:5px 6px;align-items:center;font-size:12px;margin-bottom:4px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg button{border:0;border-radius:0;background:transparent}
+.seg button.on{background:#1f2834;color:var(--text)}
+button{font:inherit;font-size:12px;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer;min-height:30px}
+button.rg{display:inline-flex;align-items:center;gap:5px;padding:4px 9px}
+button.rg i{width:9px;height:9px;border-radius:2px;display:inline-block}
+button.rg[aria-pressed="true"]{border-color:var(--risk);background:rgba(229,83,75,.16);color:#ffb3ad;text-decoration:line-through}
+button.q{color:var(--muted)}
+label{display:inline-flex;align-items:center;gap:5px;color:var(--muted)}
+.src{font-size:10.5px;color:var(--muted);line-height:1.35;padding-right:110px}
+.src a{color:var(--si)}
+@media (max-width:480px){.ctl{gap:4px 4px;font-size:11px}button{font-size:11px;min-height:28px;padding:4px 7px}button.rg{padding:3px 6px}.read{font-size:11px}h1{font-size:13px}.src{font-size:10px;padding-right:0;padding-bottom:13px}}
+.tag{position:fixed;right:8px;bottom:4px;font-size:10px;color:var(--muted);opacity:.8;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="app">
+  <header><h1>供應鏈咽喉點：切斷一個地區，哪一環先停？</h1>
+    <span class="seg" role="group" aria-label="資料年份"><button id="y22" class="on">2022</button><button id="y19">2019（書中時代）</button></span>
+  </header>
+  <div class="read" id="rd" aria-live="polite"></div>
+  <canvas id="cv" aria-label="各環節的區域占比長條圖，斷鏈的區域以紅色斜線標示"></canvas>
+  <div class="ctl" id="regions" role="group" aria-label="點選區域讓它斷鏈（可複選）"></div>
+  <div class="ctl">
+    <button class="q" id="qAllies">只剩美國＋盟友</button>
+    <button class="q" id="qChina">只剩中國大陸</button>
+    <button class="q" id="qReset">全部恢復</button>
+    <label><input type="checkbox" id="adv" checked> 加看 10 奈米以下先進邏輯產能</label>
+  </div>
+  <div class="src" id="src"></div>
+</div>
+<div class="tag">SIA×BCG 資料・真實計算</div>
+<script>
+(() => {
+"use strict";
+/* 模型：短期「斷鏈」，不考慮替代與庫存。
+   s[r][k] = 區域 r 在價值鏈環節 k 的附加價值占比（%）。
+   斷鏈集合 S：環節 k 全球失去 L_k = Σ_{r∈S} s[r][k]；剩下（自給）K_k = Σ_{r∉S} s[r][k]（報告數字四捨五入，L+K 約 99–101）。
+   整條價值鏈加權損失 = Σ_k w_k L_k ÷ Σ_k w_k（w_k = 該環節占全產業附加價值的比重）。
+   瓶頸上限：若各環節彼此無法替代（固定比例生產），產出上限 = min_k K_k。
+   每個斷鏈區域「占比最大的環節」（並列時全部）以紅框標示。
+   資料來源（逐格對照原圖讀取，≈ 表示圖上沒有標數字、依長條寬度估計，誤差約 ±0.5 個百分點）：
+   ・2022：SIA×BCG《Emerging Resilience in the Semiconductor Supply Chain》（2024-05）
+     Exhibit 2「Semiconductor industry value-added by activity and region, 2022」（PDF 第 10 頁）；
+     先進邏輯參考列取自同報告 Exhibit 6（PDF 第 14 頁，10 奈米以下邏輯晶圓產能，2022）。
+     https://www.semiconductors.org/wp-content/uploads/2024/05/Report_Emerging-Resilience-in-the-Semiconductor-Supply-Chain.pdf
+   ・2019：SIA×BCG《Strengthening the Global Semiconductor Supply Chain in an Uncertain Era》（2021-04）
+     Exhibit 14「Semiconductor industry value added by activity and region, 2019」（PDF 第 31 頁）；
+     先進邏輯參考列取自同報告 Exhibit 17（PDF 第 35 頁，10 奈米以下邏輯產能，2019）。
+     https://www.semiconductors.org/wp-content/uploads/2021/05/BCG-x-SIA-Strengthening-the-Global-Semiconductor-Value-Chain-April-2021_1.pdf
+   口徑：EDA、設計、設備、材料依公司總部所在地的營收；晶圓製造、封裝測試依工廠所在地的產能。
+   「其他」含以色列、新加坡與其餘地區；2022 圖的「歐洲」為 EU。
+   下方 DATA 是純 JSON，calc_u01.py 直接讀取同一份數值。 */
+const DATA = /*DATA-BEGIN*/{
+  "regions": ["US", "CN", "TW", "KR", "JP", "EU", "OT"],
+  "regionZh": ["美國", "中國大陸", "臺灣", "南韓", "日本", "歐洲", "其他"],
+  "activities": ["eda", "logic", "dao", "memory", "equip", "materials", "fab", "atp"],
+  "activityZh": ["EDA 與核心 IP", "邏輯晶片設計", "類比與離散（DAO）", "記憶體", "製造設備", "材料", "晶圓製造", "封裝測試"],
+  "activityShort": ["EDA／IP", "邏輯設計", "類比離散", "記憶體", "設備", "材料", "晶圓製造", "封裝測試"],
+  "allies": ["US", "TW", "KR", "JP", "EU"],
+  "sets": {
+    "2022": {
+      "title": "SIA×BCG《Emerging Resilience in the Semiconductor Supply Chain》（2024-05）",
+      "exhibit": "Exhibit 2（PDF 第 10 頁）",
+      "url": "https://www.semiconductors.org/wp-content/uploads/2024/05/Report_Emerging-Resilience-in-the-Semiconductor-Supply-Chain.pdf",
+      "weight": {"eda": 3, "logic": 30, "dao": 17, "memory": 9, "equip": 12, "materials": 5, "fab": 19, "atp": 6},
+      "share": {
+        "eda":       [68, 0, 3, 0.4, 0.6, 25, 3],
+        "logic":     [65, 5, 11, 3, 4, 9, 4],
+        "dao":       [41, 9, 5, 4, 18, 17, 6],
+        "memory":    [25, 3, 4, 60, 7, 0.9, 0.2],
+        "equip":     [47, 3, 0, 3, 26, 18, 2],
+        "materials": [9, 18, 28, 18, 12, 6, 10],
+        "fab":       [10, 24, 18, 17, 17, 8, 7],
+        "atp":       [3, 30, 28, 9, 6, 3, 20]
+      },
+      "est": {
+        "eda": [0, 1, 0, 1, 1, 0, 0], "memory": [0, 0, 0, 0, 0, 1, 1], "equip": [0, 0, 1, 0, 0, 0, 0]
+      },
+      "overallPublished": [38, 11, 11, 12, 12, 11, 5],
+      "adv": {"zh": "10 奈米以下先進邏輯產能", "short": "<10nm 邏輯", "exhibit": "Exhibit 6（PDF 第 14 頁）", "share": [0, 0, 69, 31, 0, 0, 0]}
+    },
+    "2019": {
+      "title": "SIA×BCG《Strengthening the Global Semiconductor Supply Chain in an Uncertain Era》（2021-04）",
+      "exhibit": "Exhibit 14（PDF 第 31 頁）",
+      "url": "https://www.semiconductors.org/wp-content/uploads/2021/05/BCG-x-SIA-Strengthening-the-Global-Semiconductor-Value-Chain-April-2021_1.pdf",
+      "weight": {"eda": 3, "logic": 30, "dao": 17, "memory": 9, "equip": 12, "materials": 5, "fab": 19, "atp": 6},
+      "share": {
+        "eda":       [74, 2.2, 0.7, 0.4, 0.2, 20, 0],
+        "logic":     [67, 5, 7, 3, 5, 8, 4],
+        "dao":       [37, 7, 3, 6, 24, 19, 5],
+        "memory":    [29, 0, 4, 59, 8, 0, 1],
+        "equip":     [41, 0.4, 0, 4, 32, 18, 3],
+        "materials": [11, 16, 22, 16, 19, 12, 3],
+        "fab":       [12, 16, 20, 19, 17, 9, 6],
+        "atp":       [2, 38, 27, 11, 5, 4, 13]
+      },
+      "est": {
+        "eda": [0, 1, 1, 1, 1, 0, 1], "memory": [0, 1, 0, 0, 0, 1, 1], "equip": [0, 1, 1, 0, 0, 0, 0]
+      },
+      "overallPublished": [38, 9, 9, 16, 14, 10, 4],
+      "adv": {"zh": "10 奈米以下先進邏輯產能", "short": "<10nm 邏輯", "exhibit": "Exhibit 17（PDF 第 35 頁）", "share": [0, 0, 92, 8, 0, 0, 0]}
+    }
+  }
+}/*DATA-END*/;
+
+const $=id=>document.getElementById(id), cv=$("cv"), ctx=cv.getContext("2d");
+const COL=["#5B8DEF","#D08B5B","#E3B341","#4FD1A5","#8B6CFF","#8FA6BF","#5E6876"];
+const C={line:"#2A323E",text:"#E6EAF0",muted:"#97A1B0",risk:"#E5534B",gold:"#E3B341",sig:"#4FD1A5",panel:"#12161D"};
+const NR=DATA.regions.length;
+let year="2022", cut=new Set(), mode="";
+const fmt=v=>(Math.round(v*10)/10).toString();
+
+function calc(){
+  const D=DATA.sets[year], A=DATA.activities;
+  const loss=A.map(k=>DATA.regions.reduce((s,r,i)=>s+(cut.has(r)?D.share[k][i]:0),0));
+  const wsum=A.reduce((s,k)=>s+D.weight[k],0);
+  const overall=A.reduce((s,k,j)=>s+D.weight[k]*loss[j],0)/wsum;
+  const advLoss=DATA.regions.reduce((s,r,i)=>s+(cut.has(r)?D.adv.share[i]:0),0);
+  const remain=A.map(k=>Math.min(100,DATA.regions.reduce((s,r,i)=>s+(cut.has(r)?0:D.share[k][i]),0)));
+  const minRemain=Math.min(...remain);
+  const overallKeep=A.reduce((s,k,j)=>s+D.weight[k]*remain[j],0)/wsum;
+  const advKeep=DATA.regions.reduce((s,r,i)=>s+(cut.has(r)?0:D.adv.share[i]),0);
+  const worst=A.filter((k,j)=>remain[j]===minRemain);
+  // 每個斷鏈區域占比最大的環節（並列全部標示）
+  const peaks={};
+  DATA.regions.forEach((r,i)=>{ if(!cut.has(r)) return;
+    const v=A.map(k=>D.share[k][i]), m=Math.max(...v);
+    if(m>0) peaks[r]={max:m, acts:A.filter((k,j)=>v[j]===m)}; });
+  return {D,A,loss,overall,advLoss,remain,minRemain,worst,peaks,overallKeep,advKeep};
+}
+
+function fit(){ const r=cv.getBoundingClientRect(), d=Math.min(devicePixelRatio||1,2); cv.width=Math.round(r.width*d); cv.height=Math.round(r.height*d); return d; }
+function hatch(d){
+  const p=document.createElement("canvas"); p.width=p.height=Math.round(8*d);
+  const g=p.getContext("2d"); g.fillStyle="#1a1414"; g.fillRect(0,0,p.width,p.height);
+  g.strokeStyle="rgba(229,83,75,.85)"; g.lineWidth=1.4*d; g.beginPath();
+  g.moveTo(-1,p.height+1); g.lineTo(p.width+1,-1); g.stroke();
+  return ctx.createPattern(p,"repeat");
+}
+
+function draw(){
+  const R=calc(), d=fit(), W=cv.width, H=cv.height, narrow=W/d<560;
+  ctx.fillStyle=C.panel; ctx.fillRect(0,0,W,H);
+  const showAdv=$("adv").checked;
+  const rows=[...R.A.map((k,j)=>({kind:"act",k,j})),{kind:"sep"},{kind:"all"}];
+  if(showAdv){ rows.push({kind:"sep"}); rows.push({kind:"adv"}); }
+  const units=rows.reduce((s,r)=>s+(r.kind==="sep"?0.35:1),0);
+  const top=20*d, bot=6*d, rowH=(H-top-bot)/units;
+  const labW=Math.min(Math.max(W*0.24,(narrow?64:120)*d),190*d), rightW=(narrow?46:66)*d;
+  const x0=labW+6*d, bw=W-x0-rightW-8*d;
+  const fs=Math.max(9.5,Math.min(13,rowH/d*0.42))*d;
+  const pat=hatch(d);
+  ctx.font=`${10*d}px "PingFang TC",sans-serif`; ctx.fillStyle=C.muted; ctx.textBaseline="middle";
+  ctx.fillText(narrow?"環節（占全產業）":"價值鏈環節（占全產業附加價值）",6*d,top/2+1*d);
+  ctx.textAlign="right"; ctx.fillText(mode==="keep"?"剩下":"全球失去",W-6*d,top/2+1*d); ctx.textAlign="left";
+  const peakActs=new Map();
+  Object.entries(R.peaks).forEach(([r,p])=>p.acts.forEach(a=>{ const z=DATA.regionZh[DATA.regions.indexOf(r)]; peakActs.set(a,(peakActs.get(a)||[]).concat(z)); }));
+  let y=top;
+  for(const row of rows){
+    if(row.kind==="sep"){ const h=rowH*0.35; ctx.strokeStyle=C.line; ctx.lineWidth=d; ctx.beginPath(); ctx.moveTo(6*d,y+h/2); ctx.lineTo(W-6*d,y+h/2); ctx.stroke(); y+=h; continue; }
+    const bh=Math.max(8*d,rowH*0.62), by=y+(rowH-bh)/2, cyy=y+rowH/2;
+    let label, share=null, lossV, est=null;
+    if(row.kind==="act"){ label=(narrow?DATA.activityShort:DATA.activityZh)[row.j]+`  ${R.D.weight[row.k]}%`; share=R.D.share[row.k]; est=(R.D.est[row.k]||[]); lossV=R.loss[row.j]; }
+    else if(row.kind==="adv"){ label=narrow?R.D.adv.short:"參考：10 奈米以下邏輯產能"; share=R.D.adv.share; est=[]; lossV=R.advLoss; }
+    else { label=narrow?"整條鏈（加權）":"整條價值鏈（加權）"; lossV=R.overall; }
+    const isPeak=row.kind==="act" && peakActs.has(row.k);
+    // 標籤
+    ctx.font=`${row.kind==="all"?"600 ":""}${fs}px "PingFang TC",sans-serif`;
+    ctx.fillStyle=isPeak?"#ff8a82":(row.kind==="adv"?C.muted:C.text);
+    ctx.fillText(label,6*d,cyy,labW-4*d);
+    if(share){
+      let x=x0; const tot=Math.max(100,share.reduce((a,b)=>a+b,0));
+      share.forEach((v,i)=>{
+        if(v<=0) return; const w=bw*v/tot, gone=cut.has(DATA.regions[i]);
+        ctx.fillStyle=gone?pat:COL[i]; ctx.globalAlpha=gone?1:(row.kind==="adv"?0.75:0.92);
+        ctx.fillRect(x,by,Math.max(w-1*d,0.8*d),bh); ctx.globalAlpha=1;
+        if(gone){ ctx.strokeStyle=C.risk; ctx.lineWidth=1*d; ctx.strokeRect(x+0.5*d,by+0.5*d,Math.max(w-2*d,0.5*d),bh-d); }
+        const txt=(est[i]?"≈":"")+fmt(v)+"%";
+        ctx.font=`600 ${Math.min(fs,11*d)}px Menlo,monospace`;
+        if(ctx.measureText(txt).width+6*d<w){ ctx.fillStyle=gone?"#ffb3ad":"#0B0E13"; ctx.textAlign="center"; ctx.fillText(txt,x+w/2,cyy+0.5*d); ctx.textAlign="left"; }
+        x+=w;
+      });
+      if(row.kind==="adv"){ ctx.setLineDash([4*d,3*d]); ctx.strokeStyle=C.muted; ctx.lineWidth=d; ctx.strokeRect(x0-2*d,by-2*d,bw+4*d,bh+4*d); ctx.setLineDash([]); }
+    } else {
+      // 加權總和列：灰底＋紅色損失長度
+      ctx.fillStyle="#1d2430"; ctx.fillRect(x0,by,bw,bh);
+      ctx.fillStyle=C.risk; ctx.globalAlpha=.85; ctx.fillRect(x0,by,bw*lossV/100,bh); ctx.globalAlpha=1;
+      if(cut.size){ const xm=x0+bw*R.minRemain/100; ctx.strokeStyle=C.gold; ctx.lineWidth=2*d; ctx.beginPath(); ctx.moveTo(xm,by-3*d); ctx.lineTo(xm,by+bh+3*d); ctx.stroke(); }
+    }
+    if(isPeak){ ctx.strokeStyle=C.risk; ctx.lineWidth=2*d; ctx.shadowColor="rgba(229,83,75,.9)"; ctx.shadowBlur=8*d;
+      ctx.strokeRect(3*d,y+2*d,W-6*d,rowH-4*d); ctx.shadowBlur=0; }
+    // 右欄數字
+    ctx.font=`600 ${Math.min(fs*1.05,13*d)}px Menlo,monospace`; ctx.textAlign="right";
+    if(mode==="keep"){ const keep=row.kind==="act"?R.remain[row.j]:(row.kind==="adv"?R.advKeep:R.overallKeep); ctx.fillStyle=keep<60?C.risk:(keep<90?C.gold:C.sig); ctx.fillText(fmt(keep)+"%",W-6*d,cyy); }
+    else if(lossV>0.05){ ctx.fillStyle=C.risk; ctx.fillText("−"+fmt(lossV)+"%",W-6*d,cyy); }
+    else { ctx.fillStyle=C.muted; ctx.fillText("—",W-6*d,cyy); }
+    ctx.textAlign="left";
+    y+=rowH;
+  }
+  readout(R);
+}
+
+function readout(R){
+  const zh=r=>DATA.regionZh[DATA.regions.indexOf(r)], az=k=>DATA.activityZh[DATA.activities.indexOf(k)];
+  if(!cut.size){ $("rd").innerHTML=`點下方的區域按鈕，讓它「斷鏈」（可複選）。目前：<b>${year}</b> 年各環節附加價值的區域占比。<br>色塊越長＝該地區在這一環越不可或缺。`; return; }
+  const names=[...cut].map(zh).join("、");
+  const peaks=Object.entries(R.peaks).map(([r,p])=>`${zh(r)}占比最大的是${p.acts.map(az).join("＋")}，全球在此環節失去 ${fmt(R.loss[R.A.indexOf(p.acts[0])])}%`).join("；");
+  const lmax=Math.max(...R.loss), hit=R.A.filter((k,j)=>R.loss[j]===lmax).map(az).join("、");
+  if(mode==="keep"){
+    const kept=DATA.regions.filter(r=>!cut.has(r)).map(zh).join("、");
+    $("rd").innerHTML=`只剩 ${kept}：各環節自給比例見右欄。最弱的一環 <u>${R.worst.map(az).join("、")} 只剩 ${fmt(R.minRemain)}%</u>；`+
+      `整條鏈加權自給 <b>${fmt(R.overallKeep)}%</b>。<br>先進邏輯（10 奈米以下）自給 <i>${fmt(R.advKeep)}%</i>。（「其他」含以色列、新加坡，可再點它加回）`;
+  } else {
+    $("rd").innerHTML=`斷鏈：${names}　｜　受創最重 <u>${hit} −${fmt(lmax)}%</u>；整條價值鏈加權 <b>−${fmt(R.overall)}%</b>；`+
+      `若各環節無法替代，產出上限＝最弱環節剩下的 <i>${fmt(R.minRemain)}%</i>（黃線）<br>紅框：${peaks||"—"}　｜　10 奈米以下邏輯 −${fmt(R.advLoss)}%`;
+  }
+}
+
+function srcLine(){
+  const D=DATA.sets[year];
+  $("src").innerHTML=`來源・${year} 年資料：${D.title}，${D.exhibit}；參考列取自同報告 ${D.adv.exhibit}。`+
+    `<a href="${D.url}" target="_blank" rel="noopener">原始報告 PDF</a>。≈ 為圖上未標數字、依長條寬度估計。設計、設備、材料依公司總部；製造、封測依工廠所在地。`;
+}
+
+function buildChips(){
+  const box=$("regions"); box.innerHTML="";
+  DATA.regions.forEach((r,i)=>{
+    const b=document.createElement("button"); b.className="rg"; b.setAttribute("aria-pressed",cut.has(r)?"true":"false");
+    b.innerHTML=`<i style="background:${COL[i]}"></i>${DATA.regionZh[i]}`;
+    b.addEventListener("click",()=>{ cut.has(r)?cut.delete(r):cut.add(r); mode=""; sync(); });
+    box.appendChild(b);
+  });
+}
+function sync(){ [...$("regions").children].forEach((b,i)=>b.setAttribute("aria-pressed",cut.has(DATA.regions[i])?"true":"false")); draw(); }
+function setYear(y){ year=y; $("y22").classList.toggle("on",y==="2022"); $("y19").classList.toggle("on",y==="2019"); srcLine(); draw(); }
+
+$("y22").addEventListener("click",()=>setYear("2022"));
+$("y19").addEventListener("click",()=>setYear("2019"));
+$("qAllies").addEventListener("click",()=>{ cut=new Set(DATA.regions.filter(r=>!DATA.allies.includes(r))); mode="keep"; sync(); });
+$("qChina").addEventListener("click",()=>{ cut=new Set(DATA.regions.filter(r=>r!=="CN")); mode="keep"; sync(); });
+$("qReset").addEventListener("click",()=>{ cut=new Set(); mode=""; sync(); });
+$("adv").addEventListener("change",draw);
+addEventListener("resize",draw);
+buildChips(); srcLine(); draw();
+})();
+</script>
+</body>
+</html>

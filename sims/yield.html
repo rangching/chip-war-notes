@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>良率與晶粒成本</title>
+<style>
+:root{--bg:#0B0E13;--panel:#12161D;--line:#2A323E;--text:#E6EAF0;--muted:#97A1B0;
+--si:#8FA6BF;--euv:#8B6CFF;--sig:#4FD1A5;--risk:#E5534B;--gold:#E3B341;--cu:#D08B5B}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+font-family:"PingFang TC","Noto Sans TC",system-ui,sans-serif;overflow:hidden;-webkit-tap-highlight-color:transparent}
+#app{display:flex;flex-direction:column;height:100%;padding:8px 10px 6px}
+header{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+h1{font-size:14px;margin:0;font-weight:600}
+.read{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--muted);min-height:32px;line-height:1.4}
+.read b{color:var(--gold);font-weight:600}.read i{color:var(--sig);font-style:normal}.read u{color:var(--risk);text-decoration:none}
+#cv{flex:1;min-height:0;width:100%;display:block;margin:6px 0;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
+.ctl{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;font-size:12px}
+button{font:inherit;font-size:12px;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer;min-height:30px}
+label{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}
+label span.v{font-family:ui-monospace,Menlo,monospace;color:var(--text);min-width:58px;display:inline-block}
+input[type=range]{width:110px;accent-color:var(--sig);height:26px}
+@media (max-width:480px){.ctl{gap:5px 8px;font-size:11px}input[type=range]{width:84px}.read{font-size:11px}h1{font-size:13px}}
+.tag{position:fixed;right:8px;bottom:4px;font-size:10px;color:var(--muted);opacity:.8;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="app">
+  <header><h1>良率：一片 300 mm 晶圓能切出幾顆好晶片？</h1><button id="again">重新撒缺陷</button></header>
+  <div class="read" id="rd"></div>
+  <canvas id="cv"></canvas>
+  <div class="ctl">
+    <label>晶粒面積 <input id="a" type="range" min="10" max="800" step="5" value="100"><span class="v" id="av"></span></label>
+    <label>缺陷密度 D₀ <input id="d" type="range" min="0.01" max="1" step="0.01" value="0.10"><span class="v" id="dv"></span></label>
+    <label>每片晶圓成本 <input id="c" type="range" min="2000" max="30000" step="500" value="17000"><span class="v" id="cv2"></span></label>
+  </div>
+</div>
+<div class="tag">Poisson 缺陷模型・真實計算</div>
+<script>
+(() => {
+"use strict";
+/* 300 mm 晶圓（扣 3 mm 邊緣），正方形晶粒邊長 s = √A。
+   1) 實際排版：晶粒中心網格，四角都在可用圓內才算完整晶粒（逐顆計算，不用近似公式）。
+   2) 缺陷：數量 ~ Poisson(D₀ × 可用面積)，位置均勻分布；碰到缺陷的晶粒報廢。
+   3) 理論良率：Poisson 模型 Y = e^{−A·D₀}（A 用 cm²）。
+   每顆好晶片成本 = 晶圓成本 ÷ 好晶粒數。晶圓成本預設值只是教學用量級，非任何公司報價。 */
+const $=id=>document.getElementById(id), cv=$("cv"), ctx=cv.getContext("2d");
+const R=150, Ru=147;
+let seed=7; const rnd=()=>{seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};
+function poisson(l){ if(l>500){ const g=Math.sqrt(-2*Math.log(1-rnd()))*Math.cos(2*Math.PI*rnd()); return Math.max(0,Math.round(l+Math.sqrt(l)*g)); } let L=Math.exp(-l),k=0,p=1; do{k++;p*=rnd();}while(p>L); return k-1; }
+let defects=[], dSeed=7;
+function scatter(D0){ seed=dSeed; const area=Math.PI*Ru*Ru/100; const n=poisson(D0*area); defects=[]; while(defects.length<n){ const x=(rnd()*2-1)*Ru,y=(rnd()*2-1)*Ru; if(x*x+y*y<=Ru*Ru) defects.push([x,y]); } }
+function layout(s){
+  const dies=[]; const n=Math.ceil(Ru/s)+1;
+  for(let i=-n;i<n;i++) for(let j=-n;j<n;j++){
+    const x0=i*s, y0=j*s, x1=x0+s, y1=y0+s;
+    const far=Math.max(x0*x0,x1*x1)+Math.max(y0*y0,y1*y1);
+    if(far<=Ru*Ru) dies.push([x0,y0,0]);
+  }
+  return dies;
+}
+function fit(){ const r=cv.getBoundingClientRect(), d=Math.min(devicePixelRatio||1,2); cv.width=Math.round(r.width*d); cv.height=Math.round(r.height*d); return d; }
+function draw(){
+  const A=+$("a").value, D0=+$("d").value, cost=+$("c").value, s=Math.sqrt(A);
+  $("av").textContent=A+" mm²"; $("dv").textContent=D0.toFixed(2)+"/cm²"; $("cv2").textContent="$"+cost.toLocaleString();
+  const dies=layout(s);
+  for(const dd of dies){ dd[2]=0; }
+  for(const [x,y] of defects){ const i=Math.floor(x/s), j=Math.floor(y/s); for(const dd of dies){ if(dd[0]===i*s && dd[1]===j*s){ dd[2]++; break; } } }
+  const good=dies.filter(d=>d[2]===0).length;
+  const Yth=Math.exp(-(A/100)*D0);
+  const d=fit(), W=cv.width, H=cv.height, S=Math.min(W*0.62,H)-16*d, cx=8*d+S/2, cy=H/2, k=S/2/R;
+  ctx.fillStyle="#12161D"; ctx.fillRect(0,0,W,H);
+  const g=ctx.createRadialGradient(cx-S*.15,cy-S*.2,S*.05,cx,cy,S/2);
+  g.addColorStop(0,"#2b3442"); g.addColorStop(.6,"#1d2430"); g.addColorStop(1,"#141a22");
+  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(cx,cy,R*k,0,7); ctx.fill();
+  ctx.strokeStyle="#8FA6BF"; ctx.lineWidth=1.2*d; ctx.stroke();
+  // 缺口（notch）
+  ctx.fillStyle="#12161D"; ctx.beginPath(); ctx.arc(cx,cy+R*k,4*d,0,7); ctx.fill();
+  for(const [x0,y0,nd] of dies){
+    ctx.fillStyle = nd? "rgba(229,83,75,.55)" : "rgba(79,209,165,.30)";
+    ctx.fillRect(cx+x0*k+0.6*d, cy+y0*k+0.6*d, s*k-1.2*d, s*k-1.2*d);
+  }
+  ctx.fillStyle="#E3B341"; for(const [x,y] of defects){ ctx.beginPath(); ctx.arc(cx+x*k,cy+y*k,1.6*d,0,7); ctx.fill(); }
+  // 右側：良率曲線 Y(A)
+  const gx=cx+S/2+24*d, gw=W-gx-14*d, gy=24*d, gh=H-60*d;
+  if(gw>80*d){
+    ctx.strokeStyle="#2A323E"; ctx.lineWidth=d; ctx.strokeRect(gx,gy,gw,gh);
+    ctx.fillStyle="#97A1B0"; ctx.font=`${11*d}px "PingFang TC",sans-serif`;
+    ctx.fillText("良率 Y = e^(−A·D₀)", gx, gy-8*d); ctx.fillText("晶粒面積 →  800 mm²", gx+gw-96*d, gy+gh+16*d);
+    ctx.strokeStyle="#4FD1A5"; ctx.lineWidth=2*d; ctx.beginPath();
+    for(let q=0;q<=100;q++){ const a=800*q/100, y=Math.exp(-(a/100)*D0); const X=gx+gw*q/100, Y=gy+gh*(1-y); q?ctx.lineTo(X,Y):ctx.moveTo(X,Y); }
+    ctx.stroke();
+    const X=gx+gw*A/800, Y=gy+gh*(1-Yth); ctx.fillStyle="#E3B341"; ctx.beginPath(); ctx.arc(X,Y,4*d,0,7); ctx.fill();
+  }
+  $("rd").innerHTML=`完整晶粒 <b>${dies.length}</b> 顆，撒下缺陷 ${defects.length} 個 → <i>好晶粒 ${good}</i>、<u>報廢 ${dies.length-good}</u>　｜　實際良率 ${(100*good/Math.max(1,dies.length)).toFixed(1)}%，理論 ${(100*Yth).toFixed(1)}%<br>每顆好晶片分攤晶圓成本 <b>$${good?(cost/good).toFixed(2):"—"}</b>`;
+}
+$("again").addEventListener("click",()=>{ dSeed=(dSeed*48271)%2147483647; scatter(+$("d").value); draw(); });
+$("d").addEventListener("input",()=>{ scatter(+$("d").value); draw(); });
+["a","c"].forEach(id=>$(id).addEventListener("input",draw));
+addEventListener("resize",draw); scatter(0.10); draw();
+})();
+</script>
+</body>
+</html>

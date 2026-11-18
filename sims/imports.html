@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>中國晶片進口 vs 原油進口</title>
+<style>
+:root{--bg:#0B0E13;--panel:#12161D;--line:#2A323E;--text:#E6EAF0;--muted:#97A1B0;
+--si:#8FA6BF;--euv:#8B6CFF;--sig:#4FD1A5;--risk:#E5534B;--gold:#E3B341;--cu:#D08B5B}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+font-family:"PingFang TC","Noto Sans TC",system-ui,sans-serif;overflow:hidden;-webkit-tap-highlight-color:transparent}
+#app{display:flex;flex-direction:column;height:100%;padding:8px 10px 6px}
+header{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+h1{font-size:14px;margin:0;font-weight:600}
+.read{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--muted);min-height:32px;line-height:1.4}
+.read b{color:var(--gold);font-weight:600}.read i{color:var(--cu);font-style:normal}.read u{color:var(--sig);text-decoration:none}
+#cv{flex:1;min-height:0;width:100%;display:block;margin:6px 0;border:1px solid var(--line);border-radius:8px;background:var(--panel);touch-action:none}
+.ctl{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;font-size:12px}
+select,button{font:inherit;font-size:12px;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 8px;min-height:30px}
+label{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}
+label span.v{font-family:ui-monospace,Menlo,monospace;color:var(--text);min-width:40px;display:inline-block}
+input[type=range]{width:150px;accent-color:var(--gold);height:26px}
+input[type=checkbox]{accent-color:var(--sig)}
+.src{font-size:10px;color:var(--muted);margin-top:3px}
+@media (max-width:480px){.ctl{gap:5px 8px;font-size:11px}input[type=range]{width:110px}.read{font-size:11px}h1{font-size:13px}}
+.tag{position:fixed;right:8px;bottom:4px;font-size:10px;color:var(--muted);opacity:.8;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>中國花在晶片上的錢，比石油還多？</h1>
+    <select id="mode" aria-label="檢視方式">
+      <option value="amt" selected>進口金額（十億美元）</option>
+      <option value="ratio">比值：晶片 ÷ 原油</option>
+      <option value="diff">差額：晶片 − 原油</option>
+    </select>
+  </header>
+  <div class="read" id="rd"></div>
+  <canvas id="cv"></canvas>
+  <div class="ctl">
+    <label>年份 <input id="yr" type="range" min="2000" max="2025" step="1" value="2017"><span class="v" id="yv"></span></label>
+    <label><input id="ex" type="checkbox"> 顯示晶片出口與淨進口</label>
+  </div>
+  <div class="src">來源：UN Comtrade，中國申報、夥伴＝全世界、年度、CIF 美元；晶片＝HS 8542（電子積體電路）、原油＝HS 2709；2000–2025，查詢 2026-11-18。事件年表取自書中與本系列查證資料。</div>
+</div>
+<div class="tag">UN Comtrade 資料・真實計算</div>
+<script>
+(() => {
+"use strict";
+/* 模型：沒有模型，只有資料與簡單運算。
+   資料：UN Comtrade 公開 API（https://comtradeapi.un.org/public/v1/preview/C/A/HS?reporterCode=156&period=YYYY&partnerCode=0&cmdCode=8542,2709&flowCode=M），
+        中國為申報國、夥伴為全世界、年度 CIF 進口值；出口為同一 API 的 flowCode=X（HS 8542）。單位：十億美元，四捨五入到 0.001。
+   計算：比值 r = IC/OIL；差額 d = IC − OIL；淨進口 = IC − 出口。與 calc_u10.py 同一份數字。 */
+const $=id=>document.getElementById(id), cv=$("cv"), ctx=cv.getContext("2d");
+const C={line:"#2A323E",text:"#E6EAF0",muted:"#97A1B0",sig:"#4FD1A5",risk:"#E5534B",gold:"#E3B341",cu:"#D08B5B",euv:"#8B6CFF",grid:"#1E2530"};
+const Y0=2000, Y1=2025;
+const IC=[13.800,16.998,26.374,41.834,61.707,82.202,107.152,128.664,130.583,120.751,158.010,171.142,192.967,232.078,218.520,230.657,227.617,261.161,312.952,306.397,350.770,432.634,416.525,350.139,386.119,425.394];
+const OIL=[14.861,11.661,12.757,19.782,33.912,47.723,66.412,79.858,129.331,89.256,135.300,196.771,220.794,219.660,228.288,134.343,116.661,163.821,240.380,242.385,178.453,258.523,365.512,337.645,325.187,295.447];
+const EX=[2.938,2.626,4.316,6.588,11.224,14.601,21.555,23.874,24.693,23.614,29.608,32.900,53.745,87.881,61.213,69.362,61.157,67.202,85.038,102.103,116.989,154.221,154.524,136.335,159.747,202.696];
+const EV={2001:"中國加入世界貿易組織",2004:"中芯在紐約上市（書中）",2008:"金融海嘯、油價大起大落",2014:"大基金成立；油價隨後崩跌",2015:"《中國製造 2025》",2016:"習近平：供應鏈「命門」在他人手中",2017:"書中：中國晶片進口 2,600 億美元",2018:"中興禁售、福建晉華被斷設備",2019:"華為列入美國實體清單（5 月）",2020:"外國直接產品規則；疫情、油價重挫",2021:"晶片荒；晶片進口創高峰",2022:"美國 10 月全面出口管制；俄烏戰爭推高油價",2023:"美國出口管制第二輪（10 月）",2024:"大基金三期 3,440 億人民幣",2025:"晶片 4,254 億 vs 原油 2,954 億"};
+const font=(s,d)=>`${s*d}px "PingFang TC","Noto Sans TC",sans-serif`;
+function fit(){ const r=cv.getBoundingClientRect(), d=Math.min(devicePixelRatio||1,2); cv.width=Math.round(r.width*d); cv.height=Math.round(r.height*d); return d; }
+let geo=null;
+function series(mode, showEx){
+  const n=IC.length, out=[];
+  if(mode==="amt"){
+    out.push({name:"晶片進口",v:IC,c:C.gold,w:2.4});
+    out.push({name:"原油進口",v:OIL,c:C.cu,w:2.4});
+    if(showEx){ out.push({name:"晶片出口",v:EX,c:C.muted,w:1.4,dash:[4,4]}); out.push({name:"晶片淨進口",v:IC.map((x,i)=>x-EX[i]),c:C.sig,w:1.8,dash:[7,3]}); }
+  } else if(mode==="ratio"){
+    out.push({name:"晶片 ÷ 原油",v:IC.map((x,i)=>x/OIL[i]),c:C.gold,w:2.4});
+    if(showEx) out.push({name:"淨進口 ÷ 原油",v:IC.map((x,i)=>(x-EX[i])/OIL[i]),c:C.sig,w:1.8,dash:[7,3]});
+  } else {
+    out.push({name:"晶片 − 原油",v:IC.map((x,i)=>x-OIL[i]),c:C.gold,w:2.4,bar:true});
+    if(showEx) out.push({name:"淨進口 − 原油",v:IC.map((x,i)=>x-EX[i]-OIL[i]),c:C.sig,w:1.8,dash:[7,3]});
+  }
+  return out;
+}
+function niceStep(range){ const raw=range/5, p=Math.pow(10,Math.floor(Math.log10(raw))); const m=raw/p; return (m<1.5?1:m<3?2:m<7?5:10)*p; }
+function draw(){
+  const d=fit(), W=cv.width, H=cv.height, mode=$("mode").value, showEx=$("ex").checked, yr=+$("yr").value, k=yr-Y0;
+  $("yv").textContent=yr;
+  ctx.fillStyle="#12161D"; ctx.fillRect(0,0,W,H);
+  const S=series(mode, showEx);
+  let lo=Infinity, hi=-Infinity; S.forEach(s=>s.v.forEach(x=>{lo=Math.min(lo,x);hi=Math.max(hi,x);}));
+  if(mode==="amt") lo=0; if(mode==="ratio"){ lo=Math.min(0,lo); hi=Math.max(hi,1.2); }
+  if(mode==="diff"){ const m=Math.max(Math.abs(lo),Math.abs(hi)); lo=Math.min(lo,-20); }
+  const step=niceStep(hi-lo); lo=Math.floor(lo/step)*step; hi=Math.ceil(hi/step)*step;
+  const narrow=W/d<480, padL=(narrow?34:44)*d, padR=12*d, padT=26*d, padB=(narrow?62:54)*d;
+  const X=i=>padL+(W-padL-padR)*i/(IC.length-1), Yv=v=>padT+(H-padT-padB)*(1-(v-lo)/(hi-lo));
+  geo={X,padL,padR,W,d};
+  // 格線與 y 軸
+  ctx.font=font(10,d); ctx.textAlign="right"; ctx.textBaseline="middle";
+  for(let v=lo; v<=hi+1e-9; v+=step){
+    const y=Yv(v); ctx.strokeStyle=C.grid; ctx.lineWidth=d; ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke();
+    ctx.fillStyle=C.muted; ctx.fillText(mode==="ratio"? v.toFixed(step<1?1:0)+"×" : Math.round(v), padL-4*d, y);
+  }
+  if(mode==="ratio"){ const y=Yv(1); ctx.strokeStyle=C.risk; ctx.setLineDash([5*d,4*d]); ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=C.risk; ctx.textAlign="left"; ctx.fillText("1×：兩者相等", padL+4*d, y-8*d); }
+  if(mode==="diff"){ const y=Yv(0); ctx.strokeStyle=C.risk; ctx.lineWidth=1.2*d; ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke(); }
+  // x 軸
+  ctx.textAlign="center"; ctx.textBaseline="top"; ctx.fillStyle=C.muted;
+  for(let i=0;i<IC.length;i++){ const yy=Y0+i; if(yy%5===0) ctx.fillText(yy, X(i), H-padB+6*d); }
+  // 原油較高的年份底色
+  for(let i=0;i<IC.length;i++) if(OIL[i]>=IC[i]){ const w=(W-padL-padR)/(IC.length-1); ctx.fillStyle="rgba(208,139,91,.18)"; ctx.fillRect(X(i)-w/2, padT, w, H-padT-padB); }
+  // 選取年份
+  ctx.strokeStyle="rgba(230,234,240,.35)"; ctx.lineWidth=d; ctx.beginPath(); ctx.moveTo(X(k),padT-6*d); ctx.lineTo(X(k),H-padB); ctx.stroke();
+  // 系列
+  for(const s of S){
+    if(s.bar){ const w=(W-padL-padR)/(IC.length-1)*0.62;
+      s.v.forEach((v,i)=>{ const y0=Yv(0), y=Yv(v); ctx.fillStyle = v>=0 ? (i===k?C.gold:"rgba(227,179,65,.55)") : (i===k?C.cu:"rgba(208,139,91,.6)"); ctx.fillRect(X(i)-w/2, Math.min(y,y0), w, Math.abs(y-y0)); });
+      continue; }
+    ctx.strokeStyle=s.c; ctx.lineWidth=s.w*d; ctx.setLineDash(s.dash?s.dash.map(x=>x*d):[]);
+    ctx.beginPath(); s.v.forEach((v,i)=>{ const x=X(i), y=Yv(v); i?ctx.lineTo(x,y):ctx.moveTo(x,y); }); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle=s.c; ctx.beginPath(); ctx.arc(X(k), Yv(s.v[k]), 3.5*d, 0, 7); ctx.fill();
+  }
+  // 圖例
+  ctx.textAlign="left"; ctx.textBaseline="middle"; ctx.font=font(11,d); let lx=padL;
+  for(const s of S){ ctx.fillStyle=s.c; ctx.fillRect(lx, 10*d, 14*d, 3*d); ctx.fillStyle=C.text; ctx.fillText(s.name, lx+18*d, 12*d); lx+=ctx.measureText(s.name).width+34*d; }
+  if(mode==="amt"){ ctx.fillStyle=C.muted; ctx.font=font(10,d); ctx.fillText("淡橘底色＝原油比晶片貴的年份", padL, H-padB+22*d); }
+  // 事件
+  ctx.fillStyle=C.text; ctx.font=font(11,d); ctx.textAlign="left"; ctx.textBaseline="top";
+  ctx.fillText(`${yr}｜${EV[yr]||"—"}`, padL, H-padB+(mode==="amt"?36:24)*d);
+  // 讀數
+  const r=IC[k]/OIL[k], net=IC[k]-EX[k];
+  let txt=`${yr}：晶片進口 <b>${IC[k].toFixed(1)}</b>、原油 <i>${OIL[k].toFixed(1)}</i>（十億美元）｜比值 <b>${r.toFixed(2)}×</b>｜差額 ${(IC[k]-OIL[k]>=0?"+":"")}${(IC[k]-OIL[k]).toFixed(1)}`;
+  if(showEx) txt+=`<br>晶片出口 ${EX[k].toFixed(1)}，淨進口 <u>${net.toFixed(1)}</u>（${net>OIL[k]?"仍高於":"低於"}原油）`;
+  else { const over=IC.filter((x,i)=>x>OIL[i]).length; txt+=`<br>2000–2025 共 26 年，晶片進口高於原油 <b>${over}</b> 年`; }
+  $("rd").innerHTML=txt;
+}
+function pick(ev){
+  if(!geo) return; const r=cv.getBoundingClientRect(), x=(ev.clientX-r.left)*geo.d;
+  let best=0, bd=1e9; for(let i=0;i<IC.length;i++){ const dd=Math.abs(geo.X(i)-x); if(dd<bd){bd=dd;best=i;} }
+  $("yr").value=Y0+best; draw();
+}
+cv.addEventListener("pointerdown",e=>{ pick(e); cv.setPointerCapture(e.pointerId); });
+cv.addEventListener("pointermove",e=>{ if(e.buttons) pick(e); });
+["yr","mode","ex"].forEach(id=>$(id).addEventListener("input",draw));
+$("mode").addEventListener("change",draw);
+addEventListener("resize",draw); draw();
+})();
+</script>
+</body>
+</html>
