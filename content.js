@@ -49,13 +49,13 @@ window.UNITS = [
   status: "planned", estDur: "約 15 分", segWord: "小節",
   sections: [
     { t: 0, title: "你口袋裡的上百億個開關" },
-    { t: 110, title: "電晶體：會計算的開關" },
-    { t: 220, title: "摩爾定律：每兩年翻倍" },
-    { t: 330, title: "一顆晶片的環球旅程" },
-    { t: 445, title: "咽喉點：每環只剩少數公司" },
-    { t: 565, title: "七十年權力史：八個部分" },
-    { t: 690, title: "臺灣在正中央：矽盾之爭" },
-    { t: 800, title: "2022 之後與系列地圖" }
+    { t: 157, title: "電晶體：會計算的開關" },
+    { t: 252, title: "摩爾定律：每兩年翻倍" },
+    { t: 363, title: "一顆晶片的環球旅程" },
+    { t: 443, title: "咽喉點：每環只剩少數公司" },
+    { t: 548, title: "七十年權力史：八個部分" },
+    { t: 646, title: "臺灣在正中央：矽盾之爭" },
+    { t: 746, title: "2022 之後與系列地圖" }
   ],
   formula: R`N(t)=N_0\cdot 2^{(t-t_0)/T_2},\quad T_2\approx 2.09\ \text{年};\qquad L_k=\sum_{r\in S} s_{r,k}`,
   pre: [
